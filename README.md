@@ -1,33 +1,156 @@
 # Local Agent Evals
 
-Local evaluation of language models and coding agents, starting with Qwen Code
-and locally served models on two RTX 3090 GPUs.
+A small Python CLI for serial, resumable local smoke evaluations on two RTX 3090s.
+Version 1 supports IFEval, HumanEval+, BBH, and MMLU-Pro. It defaults to the local
+INT8 Agentic v2 checkpoint; the comparison suite adds the original INT8 checkpoint.
+No weights are downloaded. Runs and reports are private and remain outside Git.
 
-## Status
+## Setup
 
-Repository initialized. Planning and implementation are pending approval.
-No evaluation runner or benchmark suite is implemented yet.
+Use a checkout under `/home/emmy/workspace` and a project-local environment:
 
-## Intended scope
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/bench list
+.venv/bin/bench plan examples/smoke.yaml
+.venv/bin/bench prepare examples/smoke.yaml
+.venv/bin/bench run examples/smoke.yaml
+```
 
-- Configurable smoke suites with selected benchmarks, sample counts, and time budgets.
-- Serial execution with progress logs, recovery, and bounded resource use.
-- Markdown and JSON reports covering results, failures, and runtime.
-- Established benchmark tools for prompting and scoring where practical.
+`prepare` requires Docker access, the existing pinned
+`qwen38-int8-lab/eval:0.1.0` base image, readable checkpoint metadata, and write
+access to `/data/local-agent-evals`. It checks the base image's content identity,
+builds the runtime overlay if absent, downloads pinned public benchmark data,
+hashes the complete checkpoint, freezes deterministic sample selections, and
+records package versions and task/dataset hashes. Model weights are mounted read-only
+and read as container root because the existing shards are root-owned mode 0600.
+Only the orchestration dependency PyYAML is installed on the host.
 
-Model building remains in [qwen38-int8-lab](https://github.com/gracee3/qwen38-int8-lab).
-Evaluation reports should identify the exact checkpoint, build commit, datasets,
-and runtime settings used.
+EvalPlus 0.3.1 is in a separate Python environment **inside the Docker image**.
+Its resolved requirements are checked in; they do not change the inherited
+lm-eval 0.4.12 / vLLM 0.27.1 environment. `pins.json` records the validated local
+image identities. Docker builds can have different image identities even with
+identical package versions; updating that pin requires explicit revalidation.
+The local base image is a prerequisite, not a publicly downloadable image.
 
-## Data boundaries
+To reuse a pre-existing Hugging Face cache during initial preparation:
 
-This is a public repository. Keep model weights, dataset caches, raw responses,
-generated code, logs, credentials, and private task material outside Git.
-The proposed local run-data root is `/data/local-agent-evals/`.
-Only reviewed, compact summaries should be published here.
+```sh
+BENCH_IMPORT_HF_CACHE=/path/to/existing/huggingface .venv/bin/bench prepare examples/smoke.yaml
+```
 
-## Planning topics
+The cache is copied with copy-on-write when available, never hard-linked. No
+original cache is mounted writable. Each run receives a separate cache copy.
+`prepare` logs progress to the printed preparation directory's `prepare.log`.
+Changed implementation or checkpoint identities require preparation again.
 
-Confirm the first supported benchmarks, model/server ownership, time and retry
-budgets, resume behavior, execution environments for generated code, and the
-report format before implementation.
+## Commands
+
+```text
+bench list                     supported benchmarks and local profiles
+bench plan SUITE.yaml           validate; show total examples and deadline ceilings
+bench prepare SUITE.yaml        prepare exact dependencies, data, and sample IDs
+bench run SUITE.yaml            detach; print run ID and supervisor/status paths
+bench status RUN_ID             stage progress, elapsed budgets, errors, liveness
+bench stop RUN_ID               request owned-container cleanup; retain progress
+bench resume RUN_ID             explicitly restart compatible saved work
+bench report RUN_ID             regenerate local Markdown and JSON
+```
+
+Activate `.venv`, use `.venv/bin/bench`, or put that directory on your PATH.
+There is no boot service, web server, external notification, or automatic result
+publication. `run` is the only overnight launch; preparation does not start GPU
+inference. `examples/acceptance.yaml` selects two examples per benchmark.
+
+## Suite semantics
+
+See the commented [default suite](examples/smoke.yaml) and
+[two-model comparison](examples/comparison.yaml). Counts are **total per benchmark**,
+not per BBH task or MMLU subject. Seed 42 selects examples deterministically;
+round-robin allocation spreads BBH and MMLU-Pro selections across categories.
+Both models use exactly the same frozen IDs.
+
+The default suite has 100 IFEval, all 164 HumanEval+, 60 BBH, and 60 MMLU-Pro
+examples. Stage deadlines per model are 90, 150, 90, and 90 minutes. This gives a
+seven-hour deadline ceiling for one model and fourteen for two; these are not
+throughput predictions. Preparation and waiting for resources are separate from
+the active budget (24 hours by default, configurable up to 48).
+
+Runtime settings are TP2, BF16 weights/activations and KV cache, 16K context,
+non-thinking, no MTP, no CPU offload, eager execution, no prefix cache, and one
+model request at a time. The harness commits bounded batches (four examples by
+default); that batch size does not enable model concurrency. Context length,
+batch size, and KV cache allocation can be configured within validated limits.
+All effective settings are saved in `frozen.json`.
+
+IFEval uses the pinned leaderboard task with the local 1,024-token cap.
+HumanEval+ uses EvalPlus 0.3.1's OpenAI chat prompt, greedy generation, sanitizer,
+and full base/plus scoring on dataset v0.1.10, with one 2,048-token response.
+The supervisor replaces EvalPlus's unbounded transport retry loop with its own
+bounded policy. BBH and MMLU-Pro preserve the pinned leaderboard protocol's
+**answer-choice likelihood scoring**, including native few-shot prompts.
+IFEval and HumanEval+ retain vLLM finish reasons for truncation counts.
+Inputs that would require context truncation are rejected.
+
+These are protocol-qualified local smoke results, not official leaderboard
+scores. No combined score is calculated. Reports separate planned, completed,
+and scored counts, partial coverage, execution failures, infrastructure errors,
+output truncation, and durations. Comparisons include paired pass/fail changes
+only for examples scored by both models.
+
+## Ownership, limits, and recovery
+
+The supervisor queues for up to 24 hours until both GPUs are idle and it can hold
+`/data/qwen38-int8-lab/quant-swappiness.lock`. It checks GPU availability again
+after acquiring the lock and before each GPU stage. It never changes swappiness
+or stops unrelated workloads. Containers have a unique ownership label; cleanup
+checks that exact label and does not kill host processes by PID.
+
+A sustained ten-second breach of either 8 GiB available RAM or 32 GiB swap growth
+stops the run. The baseline is captured when resources are acquired. Active and
+stage time are saved every heartbeat and retained across retries and resumes.
+A stopped run resumes only unfinished work. Deadline-exhausted stages retain
+partial results and advance to the next stage; persistent runtime/resource
+failures stop the supervisor. Only explicitly recognized transient connection
+failures receive one infrastructure retry. Wrong answers, failing programs, and
+timeouts never receive correctness retries.
+
+Native lm-eval SQLite response caching commits responses transactionally. Result
+records and HumanEval generations are written with fsync and atomic rename.
+Resume reuses committed records; only uncommitted work repeats. Run and model
+paths isolate caches, and frozen configuration, source, package/image, dataset,
+and checkpoint identities prevent incompatible resumes. An unexpected host
+reboot requires explicit `resume`; status reports stale supervisor state.
+
+HumanEval generation uses an owned vLLM server bound only to the GPU container's
+loopback interface. That container stops before grading. Each grading container
+has a read-only root filesystem, no network, no GPUs, no model mounts, no
+credentials or Docker socket, and runs as the host's unprivileged UID. It mounts
+only its single example, its own output directory, and read-only runner code.
+Limits are two CPUs, 4 GiB RAM with no extra swap, 128 processes, and a configurable
+120-second outer wall deadline, in addition to EvalPlus's native test timeouts.
+This is Docker isolation on a shared kernel, not a VM boundary.
+
+All run artifacts are under `/data/local-agent-evals/runs/RUN_ID/` with private
+permissions: frozen identities, live `status.json`, tail-able `supervisor.log`,
+raw outputs/code, response caches, `report.md`, and `report.json`.
+
+## Development and provenance
+
+```sh
+.venv/bin/pip install pytest==8.4.2
+.venv/bin/pytest -q
+```
+
+Model construction remains in
+[qwen38-int8-lab](https://github.com/gracee3/qwen38-int8-lab).
+The base requirements, dataset revisions, native task choices, and RAM/swap guard
+thresholds derive from that repository's pinned evaluation and quantization work.
+This runner contains no dependency on its checkout location. Existing quantization
+artifacts and historical evaluation caveats remain in that repository; a new
+smoke score does not supersede its quality gates or establish equivalence to BF16.
+
+Upstream protocols: [lm-eval](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12),
+[EvalPlus 0.3.1](https://github.com/evalplus/evalplus/tree/v0.3.1).
+Rust, long-context tests, Qwen Code tasks, and a web interface are outside v1.
