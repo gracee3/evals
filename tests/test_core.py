@@ -91,3 +91,15 @@ def test_runtime_diagnostic_classification():
     assert runtime_error(known + '\nTraceback (most recent call last):\nRuntimeError')
     assert runtime_error('WARNING CUDA out of memory')
     assert runtime_error('Truncating context.')
+
+
+def test_interleaved_optional_import_warnings():
+    from benchlib.supervisor import runtime_error
+    prefix = 'WARNING [import_utils.py:408] '
+    text = prefix + 'Module vllm.third_party.deep_gemm was found but failed to import\n'
+    text += prefix + 'Traceback (most recent call last):\n'
+    text += prefix + '  File optional.py\n' * 15
+    text += prefix + 'Traceback (most recent call last):\n'
+    assert not runtime_error(text)
+    assert runtime_error(text + '\nTraceback (most recent call last):')
+    assert runtime_error(text + '\n' + prefix + 'Module unrelated was found but failed to import\n' + prefix + 'Traceback (most recent call last):')

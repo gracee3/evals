@@ -39,8 +39,11 @@ def runtime_error(text):
             return True
         if 'traceback (most recent call last)' in line:
             # Known optional SM90 kernel import probe on SM86. Preserve it in the raw log.
-            optional_deepgemm = (i > 0 and 'warning' in line and '[import_utils.py:' in line
-                and 'module vllm.third_party.deep_gemm was found but failed to import' in lines[i - 1])
+            probes = [prior for prior in lines[max(0, i - 100):i]
+                      if '[import_utils.py:' in prior and 'module ' in prior and 'failed to import' in prior]
+            # TP worker stderr can interleave complete warning blocks.
+            optional_deepgemm = ('warning' in line and '[import_utils.py:' in line and probes
+                and all('module vllm.third_party.deep_gemm was found but failed to import' in p for p in probes))
             if not optional_deepgemm:
                 return True
     return False
