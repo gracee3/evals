@@ -160,7 +160,8 @@ class Supervisor:
         args += mount(PROFILES[model], '/model', True) + mount(self.run, '/work')
         args += mount(prepared_path(self.config), '/prepared', True)
         args += ['--env', 'HF_HOME=/work/cache', '--env', 'HF_HUB_OFFLINE=1', '--env', 'HF_DATASETS_OFFLINE=1',
-                 '--env', 'VLLM_CACHE_ROOT=/work/vllm-cache', '--env', 'HOME=/tmp',
+                 '--env', 'VLLM_CACHE_ROOT=/work/vllm-cache', '--env', 'TRITON_CACHE_DIR=/work/triton-cache',
+                 '--env', 'CUDA_CACHE_PATH=/work/cuda-cache', '--env', 'HOME=/tmp',
                  '--entrypoint', '/opt/evalplus/bin/python' if benchmark == 'humaneval_plus' else 'python',
                  self.frozen['prepared']['image'], '-m', 'benchlib.worker',
                  'generate' if benchmark == 'humaneval_plus' else 'harness',

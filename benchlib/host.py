@@ -122,6 +122,9 @@ def prepare(config):
         (path / 'cache').mkdir(exist_ok=True, mode=0o700)
         # Explicit opt-in cache import. Copy-on-write when supported; never hardlink or write original.
         cache = os.environ.get('BENCH_IMPORT_HF_CACHE')
+        if not cache:
+            others = sorted((ROOT / 'prepared').glob('*/cache'))
+            cache = next((str(p) for p in others if p.parent != path and (p.parent / 'prepared.json').is_file()), None)
         if cache:
             command(['cp', '-a', '--reflink=auto', str(Path(cache).resolve()) + '/.', str(path / 'cache')], timeout=300)
         for m in config['models']:

@@ -92,6 +92,12 @@ def harness(stage_path, benchmark):
     pending = [s for s in selected if not record_path(stage_path, s).exists()]
     if not pending:
         return
+    from lm_eval.tasks import TaskManager
+    manager = TaskManager()
+    loaded = manager.load(sorted({i['task'] for i in selected}))['tasks']
+    for task_name, task in loaded.items():
+        if digest(list(task.eval_docs)) != frozen['prepared']['dataset_hashes'][task_name]:
+            raise RuntimeError('cached dataset content differs from frozen revision: ' + task_name)
     lm = VLLM(**runtime_args(config))
     original_generate = lm._model_generate
     def capture(*args, **kwargs):
@@ -154,6 +160,8 @@ def humaneval_generate(stage_path):
     from evalplus.sanitize import sanitize
     frozen = read_json('/work/frozen.json')
     config = frozen['suite']
+    if file_hash('/prepared/humaneval.json') != frozen['prepared']['dataset_hashes']['humaneval_plus']:
+        raise RuntimeError('HumanEval dataset differs from frozen identity')
     problems = read_json('/prepared/humaneval.json')
     tokens = next(s['tokens'] for s in config['benchmarks'] if s['name'] == 'humaneval_plus')
     selected = frozen['prepared']['selection']['humaneval_plus']
