@@ -25,7 +25,8 @@ def report(run):
                 partial=len(scored) < bench['count'], duration_seconds=state.get('elapsed', 0),
                 truncated=sum(r.get('truncated') is True for r in records),
                 execution_failures=sum(bool(r.get('execution_failure')) for r in records),
-                infrastructure_errors=state.get('errors', []), status=state.get('status', 'pending'))
+                infrastructure_errors=[e for e in state.get('errors', []) if e != 'stage deadline exhausted'],
+                stage_timeout=state.get('status') == 'timeout', status=state.get('status', 'pending'))
             outcomes[key] = {str(r['item']): r['score'] for r in scored}
             rows.append(row)
     pairs = []
@@ -44,11 +45,13 @@ def report(run):
     write_json(run / 'report.json', payload)
     lines = [f'# Local evaluation {run.name}', '', payload['scope'], '',
              f'Status: {status["status"]}; active seconds: {status.get("active_seconds", 0):.1f}; queue seconds: {status.get("queue_seconds", 0):.1f}', '',
-             '| Model | Benchmark / metric | Score | Scored / planned | Coverage | Seconds | Truncated | Execution failures | Infra errors |',
+             '| Model | Benchmark / metric | Score | Scored / planned | Coverage / stage | Seconds | Truncated | Execution failures | Infra errors |',
              '|---|---|---:|---:|---|---:|---:|---:|---:|']
     for r in rows:
         score = '—' if r['score'] is None else f'{r["score"]:.4f}'
-        lines.append(f'| {r["model"]} | {r["benchmark"]} / {r["metric"]} | {score} | {r["scored"]}/{r["planned"]} | {"partial" if r["partial"] else "complete"} | {r["duration_seconds"]:.1f} | {r["truncated"]} | {r["execution_failures"]} | {len(r["infrastructure_errors"])} |')
+        lines.append(f'| {r["model"]} | {r["benchmark"]} / {r["metric"]} | {score} | {r["scored"]}/{r["planned"]} | {"partial" if r["partial"] else "complete"} / {r["status"]} | {r["duration_seconds"]:.1f} | {r["truncated"]} | {r["execution_failures"]} | {len(r["infrastructure_errors"])} |')
+    if status.get('error'):
+        lines += ['', 'Run error: ' + status['error']]
     if pairs:
         lines += ['', 'Paired changes (first model → second model):', '']
         for p in pairs:

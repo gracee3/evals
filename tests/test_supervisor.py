@@ -23,6 +23,7 @@ def fixture_run(tmp_path):
 def patch_host(monkeypatch, tmp_path):
     import benchlib.supervisor as mod
     monkeypatch.setattr(mod, 'cleanup', lambda owner: None)
+    monkeypatch.setattr(Supervisor, 'verify_models', lambda self: None)
     monkeypatch.setattr(mod, 'gpu_idle', lambda: True)
     monkeypatch.setattr(mod, 'memory', lambda: (16 * 1024**3, 0))
     monkeypatch.setattr(mod, 'LOCK', tmp_path / 'shared.lock')

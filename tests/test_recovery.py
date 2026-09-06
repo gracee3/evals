@@ -100,3 +100,17 @@ def test_active_budget_preserved_on_resume(tmp_path, monkeypatch):
     assert supervisor.state['status'] == 'halted'
     assert supervisor.state['active_seconds'] >= 24 * 3600
     assert 'budget' in supervisor.state['error']
+
+
+def test_changed_checkpoint_while_queued_stops_before_stage(tmp_path, monkeypatch):
+    fixture_run(tmp_path)
+    patch_host(monkeypatch, tmp_path)
+    def changed(self):
+        assert self.active
+        raise Halt('checkpoint identity changed while queued')
+    monkeypatch.setattr(Supervisor, 'verify_models', changed)
+    monkeypatch.setattr(Supervisor, 'gpu_stage', lambda *args: pytest.fail('changed model must never launch'))
+    supervisor = Supervisor(tmp_path)
+    supervisor.work()
+    assert supervisor.state['status'] == 'halted'
+    assert 'checkpoint identity' in supervisor.state['error']

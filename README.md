@@ -77,7 +77,7 @@ seven-hour deadline ceiling for one model and fourteen for two; these are not
 throughput predictions. Preparation and waiting for resources are separate from
 the active budget (24 hours by default, configurable up to 48).
 
-Runtime settings are TP2, BF16 weights/activations and KV cache, 16K context,
+Runtime settings are TP2, BF16 runtime dtype and KV cache, 16K context,
 non-thinking, no MTP, no CPU offload, eager execution, no prefix cache, and one
 model request at a time. The harness commits bounded batches (four examples by
 default); that batch size does not enable model concurrency. Context length,

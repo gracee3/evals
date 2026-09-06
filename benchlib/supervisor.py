@@ -9,7 +9,7 @@ import sys
 import time
 import uuid
 
-from benchlib.core import LOCK, PROFILES, read_json, write_json
+from benchlib.core import LOCK, PROFILES, model_identity, read_json, write_json
 from benchlib.host import ResourceGuard, cleanup, command, container_args, gpu_idle, memory, mount, prepared_path, restore_permissions
 from benchlib.report import report
 from benchlib.worker import record_path
@@ -173,10 +173,12 @@ class Supervisor:
         if runtime_error(text):
             raise RuntimeFailure('runtime log contains OOM, exception, CUDA error, or input truncation')
         # Wait for teardown without touching anyone else's GPU work.
-        for _ in range(30):
+        for attempt in range(120):
             self.tick()
             if gpu_idle():
                 return
+            if attempt % 10 == 0:
+                print(f'Waiting for GPU teardown: {attempt}s', flush=True)
             time.sleep(1)
         raise Halt('GPUs remain occupied after owned-container cleanup')
 
@@ -211,10 +213,16 @@ class Supervisor:
                 raise RuntimeFailure('invalid grading result')
             write_json(destination, value)
 
+    def verify_models(self):
+        for model in self.config['models']:
+            if model_identity(PROFILES[model]) != self.frozen['prepared']['host_models'][model]:
+                raise Halt('checkpoint identity changed while queued or active: ' + model)
+
     def work(self):
         try:
             cleanup(self.owner)
             self.acquire()
+            self.verify_models()
             for model in self.config['models']:
                 for benchmark in self.config['benchmarks']:
                     name = benchmark['name']
@@ -237,6 +245,9 @@ class Supervisor:
                                 self.gpu_stage(model, name, stage)
                             if name == 'humaneval_plus':
                                 self.grade(stage)
+                            self.verify_models()
+                            state['completed'] = len(list((stage / 'result').glob('*.json')))
+                            state['generated'] = len(list((stage / 'generation').glob('*.json')))
                             state['status'] = 'complete'
                             break
                         except Deadline as e:

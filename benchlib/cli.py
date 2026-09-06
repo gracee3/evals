@@ -87,6 +87,18 @@ def new_run(config):
     shutil.copytree(PROJECT / 'benchlib', path / 'code/benchlib', ignore=shutil.ignore_patterns('__pycache__'))
     # Copy prepared caches; source remains read-only to every active worker.
     command(['cp', '-a', '--reflink=auto', prepared_path(config) / 'cache', path / 'cache'], timeout=600)
+    # Kernel caches contain compiled code, never responses; clone only a completed compatible run.
+    for prior in sorted((ROOT / 'runs').iterdir(), reverse=True):
+        if prior == path or not (prior / 'status.json').is_file():
+            continue
+        previous = read_json(prior / 'frozen.json')
+        if (read_json(prior / 'status.json')['status'] == 'complete'
+                and previous['prepared']['image'] == prep['image']
+                and previous['suite']['runtime'] == config['runtime']):
+            for name in ('triton-cache', 'cuda-cache', 'vllm-cache'):
+                if (prior / name).is_dir():
+                    command(['cp', '-a', '--reflink=auto', prior / name, path / name], timeout=300)
+            break
     write_json(path / 'status.json', dict(status='created', stages={}, active_seconds=0, queue_seconds=0, resumes=0))
     report(path)
     launch(path)
