@@ -32,8 +32,22 @@ def transient(text):
     return any(s in text.lower() for s in ('connection reset by peer', 'connection refused', 'temporarily unavailable', 'connection aborted'))
 
 
+def runtime_error(text):
+    lines = text.lower().splitlines()
+    for i, line in enumerate(lines):
+        if any(word in line for word in ('out of memory', 'cuda error:', 'truncating context', 'truncating input')):
+            return True
+        if 'traceback (most recent call last)' in line:
+            # Known optional SM90 kernel import probe on SM86. Preserve it in the raw log.
+            optional_deepgemm = (i > 0 and 'warning' in line and '[import_utils.py:' in line
+                and 'module vllm.third_party.deep_gemm was found but failed to import' in lines[i - 1])
+            if not optional_deepgemm:
+                return True
+    return False
+
+
 class Supervisor:
-    def __init__(self, run):
+    def __init__(self, run, lifetime_fd=None):
         self.run = Path(run)
         self.frozen = read_json(self.run / 'frozen.json')
         self.config = self.frozen['suite']
@@ -44,6 +58,9 @@ class Supervisor:
         self.guard = None
         self.owner = self.frozen['owner']
         self.lock = None
+        self.lifetime_fd = lifetime_fd
+        self.watchdog = None
+        self.watchdog_pipe = None
 
     def save(self):
         self.state['updated_at'] = time.time()
@@ -101,7 +118,16 @@ class Supervisor:
         self.tick()
         self.active = True
         self.last = time.monotonic()
-        self.guard = ResourceGuard(memory()[1])
+        boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        if self.state.get('swap_boot') != boot:
+            self.state.update(swap_boot=boot, swap_baseline=memory()[1])
+        self.guard = ResourceGuard(self.state['swap_baseline'])
+        if self.lifetime_fd is not None:
+            read_fd, self.watchdog_pipe = os.pipe()
+            self.watchdog = subprocess.Popen([sys.executable, '-m', 'benchlib.watchdog', str(self.run),
+                str(read_fd), str(self.lock.fileno()), str(self.lifetime_fd)],
+                pass_fds=(read_fd, self.lock.fileno(), self.lifetime_fd))
+            os.close(read_fd)
         self.state['status'] = 'running'
         self.save()
 
@@ -143,7 +169,7 @@ class Supervisor:
         text = (stage / 'runtime.log').read_text(errors='replace')[-200000:]
         if rc:
             raise RuntimeFailure(f'container exit {rc}: {text[-5000:]}')
-        if any(s in text.lower() for s in ('out of memory', 'cuda error:', 'traceback (most recent call last)', 'truncating input')):
+        if runtime_error(text):
             raise RuntimeFailure('runtime log contains OOM, exception, CUDA error, or input truncation')
         # Wait for teardown without touching anyone else's GPU work.
         for _ in range(30):
@@ -241,6 +267,15 @@ class Supervisor:
             try:
                 cleanup(self.owner)
             finally:
+                if self.watchdog_pipe is not None:
+                    os.write(self.watchdog_pipe, b'done')
+                    os.close(self.watchdog_pipe)
+                    self.watchdog.wait()
+                if self.active:
+                    delta = time.monotonic() - self.last
+                    self.state['active_seconds'] += delta
+                    if self.current:
+                        self.state['stages'][self.current]['elapsed'] += delta
                 if self.lock:
                     self.lock.close()
                 self.save()
@@ -258,7 +293,7 @@ def main():
         (run / 'stop').touch(mode=0o600)
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    Supervisor(run).work()
+    Supervisor(run, inherited_lock).work()
 
 if __name__ == '__main__':
     main()

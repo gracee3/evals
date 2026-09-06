@@ -116,6 +116,8 @@ def prepare(config):
                 return path
             except (ValueError, subprocess.CalledProcessError):
                 (path / 'prepared.json').rename(path / ('previous-' + uuid.uuid4().hex + '.json'))
+        print(f'Preparing {path}; log: {path / "prepare.log"}', flush=True)
+        source = source_identity()
         write_json(path / 'suite.json', config)
         (path / 'cache').mkdir(exist_ok=True, mode=0o700)
         # Explicit opt-in cache import. Copy-on-write when supported; never hardlink or write original.
@@ -139,7 +141,9 @@ def prepare(config):
             with open(path / 'prepare.log', 'a') as log:
                 subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=3600)
             prep = read_json(path / 'prepared.json')
-            prep.update(image=actual, source=source_identity(), suite_digest=digest(config),
+            if source_identity() != source:
+                raise ValueError('implementation changed during preparation; rerun bench prepare')
+            prep.update(image=actual, source=source, suite_digest=digest(config),
                         host_models={m: model_identity(PROFILES[m]) for m in config['models']})
             write_json(path / 'prepared.json', prep)
         finally:

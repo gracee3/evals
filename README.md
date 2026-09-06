@@ -91,7 +91,9 @@ The supervisor replaces EvalPlus's unbounded transport retry loop with its own
 bounded policy. BBH and MMLU-Pro preserve the pinned leaderboard protocol's
 **answer-choice likelihood scoring**, including native few-shot prompts.
 IFEval and HumanEval+ retain vLLM finish reasons for truncation counts.
-Inputs that would require context truncation are rejected.
+Inputs that would require context truncation are rejected. The known optional
+DeepGEMM import probe warning on SM86 is retained in logs without treating it as
+a failed W8A8 evaluation; OOMs, CUDA errors, and other tracebacks remain fatal.
 
 These are protocol-qualified local smoke results, not official leaderboard
 scores. No combined score is calculated. Reports separate planned, completed,
@@ -105,7 +107,10 @@ The supervisor queues for up to 24 hours until both GPUs are idle and it can hol
 `/data/qwen38-int8-lab/quant-swappiness.lock`. It checks GPU availability again
 after acquiring the lock and before each GPU stage. It never changes swappiness
 or stops unrelated workloads. Containers have a unique ownership label; cleanup
-checks that exact label and does not kill host processes by PID.
+checks that exact label and does not kill host processes by PID. A watchdog
+inherits both the run-ownership lock and shared quantization lock; if the
+supervisor is killed, it removes owned containers and writes crash reports before
+releasing either lock. Swap-growth baselines persist across resumes within a boot.
 
 A sustained ten-second breach of either 8 GiB available RAM or 32 GiB swap growth
 stops the run. The baseline is captured when resources are acquired. Active and
@@ -141,6 +146,7 @@ raw outputs/code, response caches, `report.md`, and `report.json`.
 ```sh
 .venv/bin/pip install pytest==8.4.2
 .venv/bin/pytest -q
+BENCH_DOCKER_TESTS=1 .venv/bin/pytest -q tests/test_watchdog.py
 ```
 
 Model construction remains in

@@ -81,3 +81,13 @@ def test_atomic_commit(tmp_path, monkeypatch):
     monkeypatch.setattr(core.os, 'replace', real)
     write_json(path, {'second': 2})
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_runtime_diagnostic_classification():
+    from benchlib.supervisor import runtime_error
+    known = ('WARNING [import_utils.py:408] Module vllm.third_party.deep_gemm was found but failed to import\n'
+             'WARNING [import_utils.py:408] Traceback (most recent call last):\nAssertionError')
+    assert not runtime_error(known)
+    assert runtime_error(known + '\nTraceback (most recent call last):\nRuntimeError')
+    assert runtime_error('WARNING CUDA out of memory')
+    assert runtime_error('Truncating context.')
