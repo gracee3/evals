@@ -40,6 +40,7 @@ To reuse a pre-existing Hugging Face cache during initial preparation:
 BENCH_IMPORT_HF_CACHE=/path/to/existing/huggingface .venv/bin/bench prepare examples/smoke.yaml
 ```
 
+Existing prepared benchmark caches are reused automatically when available.
 The cache is copied with copy-on-write when available, never hard-linked. No
 original cache is mounted writable. Each run receives a separate cache copy.
 `prepare` logs progress to the printed preparation directory's `prepare.log`.
@@ -125,7 +126,9 @@ Native lm-eval SQLite response caching commits responses transactionally. Result
 records and HumanEval generations are written with fsync and atomic rename.
 Resume reuses committed records; only uncommitted work repeats. Run and model
 paths isolate caches, and frozen configuration, source, package/image, dataset,
-and checkpoint identities prevent incompatible resumes. An unexpected host
+and checkpoint identities prevent incompatible resumes. Full weight hashes are
+recorded during preparation; startup/resume checks file names, sizes, inodes,
+modification times, and non-weight content hashes. An unexpected host
 reboot requires explicit `resume`; status reports stale supervisor state.
 
 HumanEval generation uses an owned vLLM server bound only to the GPU container's
@@ -159,4 +162,5 @@ smoke score does not supersede its quality gates or establish equivalence to BF1
 
 Upstream protocols: [lm-eval](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12),
 [EvalPlus 0.3.1](https://github.com/evalplus/evalplus/tree/v0.3.1).
+See [validation and limits](docs/validation.md) for test and acceptance coverage.
 Rust, long-context tests, Qwen Code tasks, and a web interface are outside v1.
