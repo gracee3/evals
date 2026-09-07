@@ -34,7 +34,7 @@ def mount(source, dest, readonly=False):
     return ['--mount', f'type=bind,src={Path(source).resolve()},dst={dest}' + (',readonly' if readonly else '')]
 
 
-def container_args(name, owner, image, *, gpu=False, code=PROJECT):
+def container_args(name, owner, image, *, gpu=False, code=PROJECT, gpu_device=None):
     args = ['docker', 'run', '--name', name, '--label', f'{LABEL}={owner}',
         '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
         '--init', '--env', 'PYTHONPATH=/app', '--env', 'PYTHONDONTWRITEBYTECODE=1',
@@ -42,7 +42,7 @@ def container_args(name, owner, image, *, gpu=False, code=PROJECT):
         '--env', f'BENCH_UID={os.getuid()}', '--env', f'BENCH_GID={os.getgid()}']
     args += mount(code / 'benchlib', '/app/benchlib', True)
     if gpu:
-        args += ['--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--gpus', 'all', '--shm-size', '2g', '--pids-limit', '1024',
+        args += ['--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--gpus', 'device=' + gpu_device if gpu_device else 'all', '--shm-size', '2g', '--pids-limit', '1024',
                  '--env', 'VLLM_USE_FLASHINFER_SAMPLER=0']
     else:
         args += ['--env', 'NVIDIA_VISIBLE_DEVICES=void', '--env', 'CUDA_VISIBLE_DEVICES=',

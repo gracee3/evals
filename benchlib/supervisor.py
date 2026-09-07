@@ -33,7 +33,11 @@ def transient(text):
 
 
 def runtime_error(text):
-    lines = text.lower().splitlines()
+    # vLLM 0.27.1 may report EngineDeadError after the worker has received all
+    # successful responses and is intentionally terminating the server. Only
+    # apply traceback scanning to the active-generation portion of the log.
+    active_text = text.split('BENCH_HUMANEVAL_GENERATION_COMPLETE', 1)[0]
+    lines = active_text.lower().splitlines()
     for i, line in enumerate(lines):
         if any(word in line for word in ('out of memory', 'cuda error:', 'truncating context', 'truncating input')):
             return True
@@ -159,7 +163,7 @@ class Supervisor:
 
     def gpu_stage(self, model, benchmark, stage):
         name = 'bench-' + uuid.uuid4().hex
-        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code')
+        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code', gpu_device=self.config['runtime'].get('gpu_device'))
         args += mount(PROFILES[model], '/model', True) + mount(self.run, '/work')
         args += mount(prepared_path(self.config), '/prepared', True)
         args += ['--env', 'HF_HOME=/work/cache', '--env', 'HF_HUB_OFFLINE=1', '--env', 'HF_DATASETS_OFFLINE=1',

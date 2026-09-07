@@ -10,6 +10,7 @@ import tempfile
 ROOT = Path('/data/local-agent-evals')
 LOCK = Path('/data/qwen38-int8-lab/quant-swappiness.lock')
 PROFILES = {
+    'int4-v1': '/data/models/Qwen3.8-27B-W4A16-INT4-Expanded400-v1',
     'int8-v2': '/data/models/Qwen3.8-27B-W8A8-INT8-Agentic-v2',
     'int8-original': '/data/models/Qwen3.8-27B-W8A8-INT8',
 }
@@ -116,7 +117,12 @@ def suite(path):
     runtime = raw.get('runtime', {})
     if not isinstance(runtime, dict) or set(runtime) - {'max_model_len', 'batch_size', 'kv_cache_memory_bytes'}:
         raise ValueError('runtime supports max_model_len, batch_size, kv_cache_memory_bytes; other v1 settings are fixed')
-    runtime = RUNTIME | runtime
+    defaults = RUNTIME
+    if models == ['int4-v1']:
+        defaults = RUNTIME | dict(tensor_parallel_size=1,
+            gpu_device='GPU-613c7d78-a76d-306b-05da-1db1f15a5032',
+            kv_cache_memory_bytes=1342177280)
+    runtime = defaults | runtime
     positive(runtime['batch_size'], 'batch_size', 16)
     positive(runtime['max_model_len'], 'max_model_len', 16384)
     positive(runtime['kv_cache_memory_bytes'], 'kv_cache_memory_bytes', 4 * 1024**3)

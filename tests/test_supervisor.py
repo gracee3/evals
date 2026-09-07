@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from benchlib.core import write_json
-from benchlib.supervisor import Halt, RuntimeFailure, Supervisor
+from benchlib.supervisor import Halt, RuntimeFailure, Supervisor, runtime_error
 from benchlib.worker import record_path
 from benchlib.report import report
 
@@ -108,3 +108,18 @@ def test_cache_paths_isolate_checkpoints(tmp_path):
     fixture_run(tmp_path)
     item = dict(task='ifeval', index=1)
     assert record_path(tmp_path / 'stages/a/ifeval', item) != record_path(tmp_path / 'stages/b/ifeval', item)
+
+
+def test_expected_vllm_shutdown_traceback_after_generation_marker_is_ignored():
+    log = ('POST /v1/chat/completions 200 OK\n'
+           'BENCH_HUMANEVAL_GENERATION_COMPLETE\n'
+           'Traceback (most recent call last):\n'
+           'vllm.v1.engine.exceptions.EngineDeadError: EngineCore encountered an issue\n')
+    assert not runtime_error(log)
+
+
+def test_traceback_before_generation_marker_still_fails():
+    log = ('Traceback (most recent call last):\n'
+           'RuntimeError: model inference failed\n'
+           'BENCH_HUMANEVAL_GENERATION_COMPLETE\n')
+    assert runtime_error(log)
