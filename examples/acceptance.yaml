@@ -1,0 +1,9 @@
+version: 1
+models: [int8-v2]
+seed: 42
+benchmarks:
+  - {name: ifeval, count: 2}
+  - {name: humaneval_plus, count: 2}
+  - {name: bbh, count: 2}
+  - {name: mmlu_pro, count: 2}
+runtime: {batch_size: 1}

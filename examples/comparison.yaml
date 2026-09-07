@@ -1,0 +1,17 @@
+# Counts are TOTAL examples per benchmark; all models receive identical IDs.
+version: 1
+models: [int8-v2, int8-original]
+seed: 42
+benchmarks:
+  - {name: ifeval, count: 100, minutes: 90, tokens: 1024}
+  - {name: humaneval_plus, count: 164, minutes: 150, tokens: 2048}
+  - {name: bbh, count: 60, minutes: 90}  # native choice-likelihood scoring
+  - {name: mmlu_pro, count: 60, minutes: 90}
+runtime:
+  max_model_len: 16384
+  batch_size: 4  # resumable harness batch; model concurrency remains ONE
+  kv_cache_memory_bytes: 805306368
+budgets:
+  active_hours: 24  # up to 48; cumulative across retries and resumes
+  queue_hours: 24
+  grade_seconds: 120  # outer wall limit per generated-code container

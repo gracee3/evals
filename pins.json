@@ -1,0 +1,10 @@
+{
+  "base_image": "sha256:c314ecf8b7e2b5d0067d6703f5bf55a939d35965e0da33efb91a4ed7ee2e0804",
+  "lm_eval": "0.4.12",
+  "lm_eval_revision": "6d642546f4688648fced259eb3302efd36ece5af",
+  "vllm": "0.27.1",
+  "evalplus": "0.3.1",
+  "evalplus_wheel_sha256": "cd601debb67419113d10ac5c3317689d847f27de5d8cf3837975f3cab571b75d",
+  "humaneval_plus": "v0.1.10",
+  "runtime_image": "sha256:53a179d6f56b42f209096f4004a849d960b87d03c0093fba97c2a8c5346c05ea"
+}
