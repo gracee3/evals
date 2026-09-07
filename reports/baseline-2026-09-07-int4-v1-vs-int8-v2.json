@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-07",
+  "run_id": "20260907T204532Z-dd2ef2503084",
+  "protocol": "local deterministic non-thinking 16K scored calibration",
+  "runner_commit": "090f2c8",
+  "hardware": {
+    "gpu": "NVIDIA RTX 3090",
+    "count": 2,
+    "vram_gib_each": 24
+  },
+  "profiles": {
+    "int4-v1": {
+      "tensor_parallel_size": 1,
+      "gpu": 0,
+      "max_model_len": 16384,
+      "kv_cache_dtype": "fp8",
+      "kv_cache_memory_bytes": 805306368
+    },
+    "int8-v2": {
+      "tensor_parallel_size": 2,
+      "max_model_len": 16384,
+      "kv_cache_dtype": "bfloat16",
+      "kv_cache_memory_bytes": 805306368
+    }
+  },
+  "examples_per_benchmark": 8,
+  "results": {
+    "int4-v1": {
+      "ifeval": 0.75,
+      "humaneval_plus": 0.875,
+      "bbh": 0.75,
+      "mmlu_pro": 0.625
+    },
+    "int8-v2": {
+      "ifeval": 0.875,
+      "humaneval_plus": 1.0,
+      "bbh": 0.75,
+      "mmlu_pro": 0.75
+    }
+  },
+  "coverage": {
+    "planned": 64,
+    "scored": 64,
+    "infrastructure_errors": 0,
+    "int4_humaneval_execution_failures": 1,
+    "int4_ifeval_truncations": 1,
+    "int8_ifeval_truncations": 2
+  }
+}
