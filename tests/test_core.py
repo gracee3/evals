@@ -34,6 +34,22 @@ def test_defaults_and_limits(tmp_path):
             suite(p)
 
 
+def test_int4_single_gpu_config(tmp_path):
+    from benchlib.worker import runtime_args
+    p = tmp_path / 'suite.yaml'
+    p.write_text('models: [int4-v1]\n')
+    config = suite(p)
+    assert config['runtime']['tensor_parallel_size'] == 1
+    assert runtime_args(config)['tensor_parallel_size'] == 1
+    assert 'gpu_device' not in runtime_args(config)
+    args = container_args('test', 'owner', 'image', gpu=True,
+        gpu_device=config['runtime']['gpu_device'])
+    assert args[args.index('--gpus') + 1] == 'device=GPU-613c7d78-a76d-306b-05da-1db1f15a5032'
+    assert config['runtime']['kv_cache_memory_bytes'] == 1342177280
+    p.write_text('models: [int8-v2]\n')
+    assert suite(p)['runtime']['tensor_parallel_size'] == 2
+
+
 def test_resource_guard_sustained():
     now = [0]
     guard = ResourceGuard(2 * 1024**3, lambda: now[0])
