@@ -1,0 +1,15 @@
+# Single-model INT4-v1 TP2 262K smoke.  Keep this bounded: it validates the
+# native context/generation path before committing to a long benchmark.
+version: 1
+models: [int4-v1]
+runtime_profiles:
+  int4-v1: int4-v1-262k-fp8-tp2
+seed: 42
+benchmarks:
+  - {name: ifeval, count: 2}
+  - {name: humaneval_plus, count: 2}
+budgets:
+  active_hours: 2
+  model_active_hours: {int4-v1: 2}
+  queue_hours: 8
+  grade_seconds: 120

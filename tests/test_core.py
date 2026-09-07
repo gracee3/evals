@@ -76,6 +76,21 @@ budgets:
     assert config['budgets']['model_active_hours'] == {'int8-v2': 4, 'int4-v1': 4}
 
 
+def test_int4_tp2_262k_profile(tmp_path):
+    p = tmp_path / 'suite.yaml'
+    p.write_text('''
+models: [int4-v1]
+runtime_profiles:
+  int4-v1: int4-v1-262k-fp8-tp2
+''')
+    config = suite(p)
+    runtime = config['runtime']
+    assert runtime['tensor_parallel_size'] == 2
+    assert runtime['max_model_len'] == 262144
+    assert runtime['kv_cache_dtype'] == 'fp8'
+    assert runtime['kv_cache_memory_bytes'] == 4831838208
+
+
 def test_resource_guard_sustained():
     now = [0]
     guard = ResourceGuard(2 * 1024**3, lambda: now[0])

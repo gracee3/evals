@@ -50,6 +50,13 @@ RUNTIME_PROFILES = {
         tensor_parallel_size=2, max_model_len=98304, kv_cache_dtype='fp8',
         kv_cache_memory_bytes=3758096384, enforce_eager=False,
         enable_prefix_caching=True, max_num_batched_tokens=2048),
+    'int4-v1-262k-fp8-tp2': RUNTIME | dict(
+        tensor_parallel_size=2, max_model_len=262144, kv_cache_dtype='fp8',
+        # The native 96K profile reserves 3.5 GiB and measured 208K cache
+        # tokens.  4.5 GiB is the initial 262K admission target; the native
+        # smoke below remains the source of truth for the actual envelope.
+        kv_cache_memory_bytes=4831838208, enforce_eager=False,
+        enable_prefix_caching=True, max_num_batched_tokens=2048),
 }
 
 
