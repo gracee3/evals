@@ -13,6 +13,9 @@ and whole-host idle checks remain in force. Two-model suites retain TP2;
 INT4 paired runs are not covered by the single-GPU acceptance check.
 HumanEval's owned server and the native harness both use the resolved TP setting.
 
+The completed INT4 v1 smoke is summarized in
+[`docs/int4-v1-smoke-2026-09-07.md`](docs/int4-v1-smoke-2026-09-07.md).
+
 ## Setup
 
 Use a checkout under `/home/emmy/workspace` and a project-local environment:
