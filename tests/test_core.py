@@ -91,6 +91,21 @@ runtime_profiles:
     assert runtime['kv_cache_memory_bytes'] == 4831838208
 
 
+def test_int8_v2_16k_scored_profile(tmp_path):
+    p = tmp_path / 'suite.yaml'
+    p.write_text('''
+models: [int8-v2]
+runtime_profiles:
+  int8-v2: int8-v2-16k-bf16-tp2
+''')
+    runtime = suite(p)['runtime']
+    assert runtime['tensor_parallel_size'] == 2
+    assert runtime['max_model_len'] == 16384
+    assert runtime['kv_cache_dtype'] == 'bfloat16'
+    assert runtime['kv_cache_memory_bytes'] == 805306368
+    assert runtime['enforce_eager'] is True
+
+
 def test_resource_guard_sustained():
     now = [0]
     guard = ResourceGuard(2 * 1024**3, lambda: now[0])

@@ -1,0 +1,16 @@
+# Bounded four-domain scored smoke for INT8-v2 at the likelihood-safe profile.
+version: 1
+models: [int8-v2]
+runtime_profiles:
+  int8-v2: int8-v2-16k-bf16-tp2
+seed: 42
+benchmarks:
+  - {name: ifeval, count: 2}
+  - {name: humaneval_plus, count: 2}
+  - {name: bbh, count: 2}
+  - {name: mmlu_pro, count: 2}
+budgets:
+  active_hours: 2
+  model_active_hours: {int8-v2: 2}
+  queue_hours: 8
+  grade_seconds: 120

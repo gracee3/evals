@@ -35,6 +35,10 @@ RUNTIME = dict(tensor_parallel_size=2, max_model_len=16384, dtype='bfloat16',
 # conservative 16K runtime above as the backwards-compatible default; long
 # context is opt-in because it has a materially different memory envelope.
 RUNTIME_PROFILES = {
+    'int8-v2-16k-bf16-tp2': RUNTIME | dict(
+        tensor_parallel_size=2, max_model_len=16384, kv_cache_dtype='bfloat16',
+        kv_cache_memory_bytes=805306368, enforce_eager=True,
+        enable_prefix_caching=False, max_num_batched_tokens=1024),
     'int8-v2-262k-fp8-tp2': RUNTIME | dict(
         tensor_parallel_size=2, max_model_len=262144, kv_cache_dtype='fp8',
         # Native vllm.yaml starts at 3 GiB, but v2's 262K single-sequence
