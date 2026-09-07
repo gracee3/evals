@@ -45,6 +45,11 @@ RUNTIME_PROFILES = {
         # admission check requires 4.16 GiB; 4.5 GiB provides measured headroom.
         kv_cache_memory_bytes=4831838208, enforce_eager=False,
         enable_prefix_caching=True, max_num_batched_tokens=2048),
+    'int4-v1-16k-fp8-tp1': RUNTIME | dict(
+        tensor_parallel_size=1, gpu_device='GPU-613c7d78-a76d-306b-05da-1db1f15a5032',
+        max_model_len=16384, kv_cache_dtype='fp8',
+        kv_cache_memory_bytes=805306368, enforce_eager=True,
+        enable_prefix_caching=False, max_num_batched_tokens=1024),
     'int4-v1-96k-fp8-tp1': RUNTIME | dict(
         tensor_parallel_size=1, gpu_device='GPU-613c7d78-a76d-306b-05da-1db1f15a5032',
         max_model_len=98304, kv_cache_dtype='fp8',

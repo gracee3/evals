@@ -107,7 +107,8 @@ non-eager execution, and 2,048-token chunked prefill.
 All effective settings are saved in `frozen.json`.
 
 Named native serving profiles are opt-in through `runtime_profiles`:
-`int8-v2-262k-fp8-tp2`, `int4-v1-96k-fp8-tp1`, and
+`int8-v2-16k-bf16-tp2`, `int8-v2-262k-fp8-tp2`,
+`int4-v1-16k-fp8-tp1`, `int4-v1-96k-fp8-tp1`, and
 `int4-v1-96k-fp8-tp2`. A suite may assign a different profile to each selected
 model. `budgets.model_active_hours` bounds each model independently while
 `budgets.active_hours` remains the whole-run cap.

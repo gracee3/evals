@@ -106,6 +106,24 @@ runtime_profiles:
     assert runtime['enforce_eager'] is True
 
 
+def test_int4_v1_16k_scored_profile(tmp_path):
+    from benchlib.worker import runtime_args
+    p = tmp_path / 'suite.yaml'
+    p.write_text('''
+models: [int4-v1]
+runtime_profiles:
+  int4-v1: int4-v1-16k-fp8-tp1
+''')
+    config = suite(p)
+    runtime = config['runtime']
+    assert runtime['tensor_parallel_size'] == 1
+    assert runtime['gpu_device'].startswith('GPU-')
+    assert runtime['max_model_len'] == 16384
+    assert runtime['kv_cache_dtype'] == 'fp8'
+    assert runtime['kv_cache_memory_bytes'] == 805306368
+    assert runtime_args(config)['tensor_parallel_size'] == 1
+
+
 def test_resource_guard_sustained():
     now = [0]
     guard = ResourceGuard(2 * 1024**3, lambda: now[0])
