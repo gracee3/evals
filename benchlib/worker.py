@@ -172,12 +172,16 @@ def humaneval_generate(stage_path):
     command = ['python', '-m', 'vllm.entrypoints.openai.api_server', '--model', '/model',
         '--served-model-name', 'bench', '--host', '127.0.0.1', '--port', '8000',
         '--tensor-parallel-size', str(r['tensor_parallel_size']), '--max-model-len', str(r['max_model_len']),
-        '--dtype', 'bfloat16', '--kv-cache-dtype', 'bfloat16', '--enforce-eager',
-        '--no-enable-prefix-caching', '--language-model-only', '--enable-chunked-prefill',
+        '--dtype', r['dtype'], '--kv-cache-dtype', r['kv_cache_dtype'],
+        '--language-model-only', '--enable-chunked-prefill',
         '--max-num-batched-tokens', str(r['max_num_batched_tokens']),
         '--max-num-seqs', '1', '--kv-cache-memory-bytes', str(r['kv_cache_memory_bytes']),
         '--seed', str(config['seed']), '--generation-config', 'vllm',
         '--default-chat-template-kwargs', '{"enable_thinking":false}']
+    if r['enforce_eager']:
+        command.insert(command.index('--language-model-only'), '--enforce-eager')
+    command.insert(command.index('--language-model-only'),
+        '--enable-prefix-caching' if r['enable_prefix_caching'] else '--no-enable-prefix-caching')
     server = subprocess.Popen(command)
     try:
         client = openai.OpenAI(base_url='http://127.0.0.1:8000/v1', api_key='local-unused', max_retries=0, timeout=300)

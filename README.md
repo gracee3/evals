@@ -7,11 +7,14 @@ No weights are downloaded. Runs and reports are private and remain outside Git.
 
 `examples/int4-acceptance.yaml` runs two examples per benchmark against the
 completed expanded-400 INT4 v1 checkpoint. A suite containing only `int4-v1`
-uses TP1 on physical GPU 0 by UUID, 16K context and 1.25 GiB BF16 KV allocation.
+uses TP1 on physical GPU 0 by UUID, 96K context and a 3.5 GiB FP8 KV allocation.
 The GPU choice and effective settings are frozen in each run. The shared lock
 and whole-host idle checks remain in force. Two-model suites retain TP2;
 INT4 paired runs are not covered by the single-GPU acceptance check.
 HumanEval's owned server and the native harness both use the resolved TP setting.
+The INT4 single-GPU profile is the validated maximum-context preset; 32K and 64K
+remain lower-headroom alternatives. The quantization repository records the
+validated TP2 comparison separately; this v1 acceptance suite remains TP1.
 
 The completed INT4 v1 smoke is summarized in
 [`docs/int4-v1-smoke-2026-09-07.md`](docs/int4-v1-smoke-2026-09-07.md).
@@ -89,11 +92,14 @@ seven-hour deadline ceiling for one model and fourteen for two; these are not
 throughput predictions. Preparation and waiting for resources are separate from
 the active budget (24 hours by default, configurable up to 48).
 
-Runtime settings are TP2, BF16 runtime dtype and KV cache, 16K context,
+Runtime settings for the default INT8 suites are TP2, BF16 runtime dtype and KV cache, 16K context,
 non-thinking, no MTP, no CPU offload, eager execution, no prefix cache, and one
 model request at a time. The harness commits bounded batches (four examples by
 default); that batch size does not enable model concurrency. Context length,
 batch size, and KV cache allocation can be configured within validated limits.
+The INT4-only acceptance suite overrides this with the validated GPU0 TP1
+profile: 98,304-token context, FP8 KV, 3.5 GiB KV allocation, prefix caching,
+non-eager execution, and 2,048-token chunked prefill.
 All effective settings are saved in `frozen.json`.
 
 IFEval uses the pinned leaderboard task with the local 1,024-token cap.
