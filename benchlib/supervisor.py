@@ -33,7 +33,11 @@ def transient(text):
 
 
 def runtime_error(text):
-    lines = text.lower().splitlines()
+    # vLLM 0.27.1 may report EngineDeadError after the worker has received all
+    # successful responses and is intentionally terminating the server. Only
+    # apply traceback scanning to the active-generation portion of the log.
+    active_text = text.split('BENCH_HUMANEVAL_GENERATION_COMPLETE', 1)[0]
+    lines = active_text.lower().splitlines()
     for i, line in enumerate(lines):
         if any(word in line for word in ('out of memory', 'cuda error:', 'truncating context', 'truncating input')):
             return True

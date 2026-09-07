@@ -210,6 +210,11 @@ def humaneval_generate(stage_path):
                 solution=sanitize(text, entrypoint=problem['entry_point']),
                 truncated=captured[0].choices[0].finish_reason == 'length',
                 usage=captured[0].usage.model_dump()))
+        # The vLLM server is terminated in finally below. Its async output
+        # handler can log EngineDeadError during that expected teardown race;
+        # mark successful generation before sending SIGTERM so the supervisor
+        # can distinguish it from an inference failure.
+        print('BENCH_HUMANEVAL_GENERATION_COMPLETE', flush=True)
     finally:
         server.terminate()
         try:
