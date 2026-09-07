@@ -43,7 +43,9 @@ def container_args(name, owner, image, *, gpu=False, code=PROJECT, gpu_device=No
     args += mount(code / 'benchlib', '/app/benchlib', True)
     if gpu:
         args += ['--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--gpus', 'device=' + gpu_device if gpu_device else 'all', '--shm-size', '2g', '--pids-limit', '1024',
-                 '--env', 'VLLM_USE_FLASHINFER_SAMPLER=0']
+                 '--env', 'VLLM_USE_FLASHINFER_SAMPLER=0',
+                 '--env', 'CUDA_HOME=/usr/local/cuda',
+                 '--mount', 'type=bind,src=/usr/local/cuda-13.3,dst=/usr/local/cuda,readonly']
     else:
         args += ['--env', 'NVIDIA_VISIBLE_DEVICES=void', '--env', 'CUDA_VISIBLE_DEVICES=',
                  '--cpus', '2', '--memory', '4g', '--memory-swap', '4g', '--pids-limit', '128',

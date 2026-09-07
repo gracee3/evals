@@ -45,7 +45,9 @@ def test_int4_single_gpu_config(tmp_path):
     args = container_args('test', 'owner', 'image', gpu=True,
         gpu_device=config['runtime']['gpu_device'])
     assert args[args.index('--gpus') + 1] == 'device=GPU-613c7d78-a76d-306b-05da-1db1f15a5032'
-    assert config['runtime']['kv_cache_memory_bytes'] == 1342177280
+    assert config['runtime']['max_model_len'] == 98304
+    assert config['runtime']['kv_cache_dtype'] == 'fp8'
+    assert config['runtime']['kv_cache_memory_bytes'] == 3758096384
     p.write_text('models: [int8-v2]\n')
     assert suite(p)['runtime']['tensor_parallel_size'] == 2
 

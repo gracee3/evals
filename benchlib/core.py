@@ -121,10 +121,12 @@ def suite(path):
     if models == ['int4-v1']:
         defaults = RUNTIME | dict(tensor_parallel_size=1,
             gpu_device='GPU-613c7d78-a76d-306b-05da-1db1f15a5032',
-            kv_cache_memory_bytes=1342177280)
+            max_model_len=98304, kv_cache_dtype='fp8',
+            kv_cache_memory_bytes=3758096384, enforce_eager=False,
+            enable_prefix_caching=True, max_num_batched_tokens=2048)
     runtime = defaults | runtime
     positive(runtime['batch_size'], 'batch_size', 16)
-    positive(runtime['max_model_len'], 'max_model_len', 16384)
+    positive(runtime['max_model_len'], 'max_model_len', 98304)
     positive(runtime['kv_cache_memory_bytes'], 'kv_cache_memory_bytes', 4 * 1024**3)
     if any(s['tokens'] and s['tokens'] >= runtime['max_model_len'] for s in selected):
         raise ValueError('output limits must be smaller than context length')

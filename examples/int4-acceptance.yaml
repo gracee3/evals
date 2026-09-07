@@ -1,4 +1,4 @@
-# Eight examples total. Single INT4 profile defaults to GPU 0, TP1, BF16 KV.
+# Eight examples total. Single INT4 profile defaults to GPU 0, TP1, 96K FP8 KV.
 version: 1
 models: [int4-v1]
 seed: 42
@@ -7,4 +7,7 @@ benchmarks:
   - {name: humaneval_plus, count: 2}
   - {name: bbh, count: 2}
   - {name: mmlu_pro, count: 2}
-runtime: {batch_size: 1}
+runtime:
+  max_model_len: 98304
+  batch_size: 1
+  kv_cache_memory_bytes: 3758096384
