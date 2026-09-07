@@ -52,6 +52,30 @@ def test_int4_single_gpu_config(tmp_path):
     assert suite(p)['runtime']['tensor_parallel_size'] == 2
 
 
+def test_explicit_model_profiles_resolve_independently(tmp_path):
+    from benchlib.worker import runtime_args
+    p = tmp_path / 'suite.yaml'
+    p.write_text('''
+models: [int8-v2, int4-v1]
+runtime_profiles:
+  int8-v2: int8-v2-262k-fp8-tp2
+  int4-v1: int4-v1-96k-fp8-tp1
+budgets:
+  active_hours: 8
+  model_active_hours: {int8-v2: 4, int4-v1: 4}
+''')
+    config = suite(p)
+    assert config['runtimes']['int8-v2']['max_model_len'] == 262144
+    assert config['runtimes']['int8-v2']['tensor_parallel_size'] == 2
+    assert config['runtimes']['int8-v2']['kv_cache_dtype'] == 'fp8'
+    assert config['runtimes']['int4-v1']['max_model_len'] == 98304
+    assert config['runtimes']['int4-v1']['tensor_parallel_size'] == 1
+    assert config['runtimes']['int4-v1']['gpu_device'].startswith('GPU-')
+    assert runtime_args(config, 'int8-v2')['max_model_len'] == 262144
+    assert runtime_args(config, 'int4-v1')['tensor_parallel_size'] == 1
+    assert config['budgets']['model_active_hours'] == {'int8-v2': 4, 'int4-v1': 4}
+
+
 def test_resource_guard_sustained():
     now = [0]
     guard = ResourceGuard(2 * 1024**3, lambda: now[0])

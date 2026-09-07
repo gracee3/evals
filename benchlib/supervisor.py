@@ -23,6 +23,10 @@ class Deadline(Exception):
     pass
 
 
+class ModelDeadline(Deadline):
+    pass
+
+
 class RuntimeFailure(Exception):
     pass
 
@@ -68,6 +72,8 @@ class Supervisor:
         self.lifetime_fd = lifetime_fd
         self.watchdog = None
         self.watchdog_pipe = None
+        self.exhausted_models = set()
+        self.state.setdefault('model_active_seconds', {})
 
     def save(self):
         self.state['updated_at'] = time.time()
@@ -82,6 +88,9 @@ class Supervisor:
         if self.active and self.current:
             stage = self.state['stages'][self.current]
             stage['elapsed'] += elapsed
+            model = self.current.split('/')[0]
+            model_elapsed = self.state['model_active_seconds'].get(model, 0) + elapsed
+            self.state['model_active_seconds'][model] = model_elapsed
             directory = self.run / 'stages' / self.current
             stage['completed'] = len(list((directory / 'result').glob('*.json')))
             stage['generated'] = len(list((directory / 'generation').glob('*.json')))
@@ -95,7 +104,10 @@ class Supervisor:
             if self.state['active_seconds'] >= self.config['budgets']['active_hours'] * 3600:
                 raise Halt('overall active budget exhausted')
             if self.current:
-                name = self.current.split('/')[1]
+                model, name = self.current.split('/')
+                model_limit = self.config['budgets'].get('model_active_hours', {}).get(model)
+                if model_limit and self.state['model_active_seconds'].get(model, 0) >= model_limit * 3600:
+                    raise ModelDeadline(f'model active budget exhausted: {model}')
                 limit = next(s['seconds'] for s in self.config['benchmarks'] if s['name'] == name)
                 if self.state['stages'][self.current]['elapsed'] >= limit:
                     raise Deadline('stage deadline exhausted')
@@ -163,7 +175,8 @@ class Supervisor:
 
     def gpu_stage(self, model, benchmark, stage):
         name = 'bench-' + uuid.uuid4().hex
-        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code', gpu_device=self.config['runtime'].get('gpu_device'))
+        runtime = self.config.get('runtimes', {}).get(model, self.config['runtime'])
+        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code', gpu_device=runtime.get('gpu_device'))
         args += mount(PROFILES[model], '/model', True) + mount(self.run, '/work')
         args += mount(prepared_path(self.config), '/prepared', True)
         args += ['--env', 'HF_HOME=/work/cache', '--env', 'HF_HUB_OFFLINE=1', '--env', 'HF_DATASETS_OFFLINE=1',
@@ -172,7 +185,8 @@ class Supervisor:
                  '--entrypoint', '/opt/evalplus/bin/python' if benchmark == 'humaneval_plus' else 'python',
                  self.frozen['prepared']['image'], '-m', 'benchlib.worker',
                  'generate' if benchmark == 'humaneval_plus' else 'harness',
-                 '--stage', '/work/stages/' + model + '/' + benchmark, '--benchmark', benchmark]
+                 '--stage', '/work/stages/' + model + '/' + benchmark, '--benchmark', benchmark,
+                 '--model', model]
         rc = self.execute(args, stage / 'runtime.log')
         text = (stage / 'runtime.log').read_text(errors='replace')[-200000:]
         if rc:
@@ -231,6 +245,8 @@ class Supervisor:
             self.acquire()
             self.verify_models()
             for model in self.config['models']:
+                if model in self.exhausted_models:
+                    continue
                 for benchmark in self.config['benchmarks']:
                     name = benchmark['name']
                     self.current = model + '/' + name
@@ -257,6 +273,12 @@ class Supervisor:
                             state['generated'] = len(list((stage / 'generation').glob('*.json')))
                             state['status'] = 'complete'
                             break
+                        except ModelDeadline as e:
+                            state['status'] = 'timeout'
+                            state['errors'].append(str(e))
+                            self.exhausted_models.add(model)
+                            cleanup(self.owner)
+                            break
                         except Deadline as e:
                             state['status'] = 'timeout'
                             state['errors'].append(str(e))
@@ -273,6 +295,8 @@ class Supervisor:
                     self.save()
                     report(self.run)
                     self.current = None
+                    if model in self.exhausted_models:
+                        break
             self.state['status'] = 'complete' if all(s['status'] == 'complete' for s in self.state['stages'].values()) else 'partial'
         except Halt as e:
             self.state['status'] = 'stopped' if str(e) == 'stop requested' else 'halted'
@@ -294,6 +318,8 @@ class Supervisor:
                     delta = time.monotonic() - self.last
                     self.state['active_seconds'] += delta
                     if self.current:
+                        model = self.current.split('/')[0]
+                        self.state['model_active_seconds'][model] = self.state['model_active_seconds'].get(model, 0) + delta
                         self.state['stages'][self.current]['elapsed'] += delta
                 if self.lock:
                     self.lock.close()

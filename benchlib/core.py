@@ -31,6 +31,27 @@ RUNTIME = dict(tensor_parallel_size=2, max_model_len=16384, dtype='bfloat16',
     language_model_only=True, enable_chunked_prefill=True, max_num_batched_tokens=1024,
     kv_cache_memory_bytes=805306368, cpu_offload_gb=0)
 
+# Imported from qwen38-int4-full-run/inference/config/*.yaml.  Keep the
+# conservative 16K runtime above as the backwards-compatible default; long
+# context is opt-in because it has a materially different memory envelope.
+RUNTIME_PROFILES = {
+    'int8-v2-262k-fp8-tp2': RUNTIME | dict(
+        tensor_parallel_size=2, max_model_len=262144, kv_cache_dtype='fp8',
+        # Native vllm.yaml starts at 3 GiB, but v2's 262K single-sequence
+        # admission check requires 4.16 GiB; 4.5 GiB provides measured headroom.
+        kv_cache_memory_bytes=4831838208, enforce_eager=False,
+        enable_prefix_caching=True, max_num_batched_tokens=2048),
+    'int4-v1-96k-fp8-tp1': RUNTIME | dict(
+        tensor_parallel_size=1, gpu_device='GPU-613c7d78-a76d-306b-05da-1db1f15a5032',
+        max_model_len=98304, kv_cache_dtype='fp8',
+        kv_cache_memory_bytes=3758096384, enforce_eager=False,
+        enable_prefix_caching=True, max_num_batched_tokens=2048),
+    'int4-v1-96k-fp8-tp2': RUNTIME | dict(
+        tensor_parallel_size=2, max_model_len=98304, kv_cache_dtype='fp8',
+        kv_cache_memory_bytes=3758096384, enforce_eager=False,
+        enable_prefix_caching=True, max_num_batched_tokens=2048),
+}
+
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -84,7 +105,7 @@ def suite(path):
     raw = yaml.safe_load(Path(path).read_text())
     if not isinstance(raw, dict):
         raise ValueError('suite must be a YAML mapping')
-    unknown = set(raw) - {'version', 'models', 'benchmarks', 'seed', 'runtime', 'budgets'}
+    unknown = set(raw) - {'version', 'models', 'benchmarks', 'seed', 'runtime', 'runtime_profiles', 'budgets'}
     if unknown:
         raise ValueError(f'unknown suite keys: {sorted(unknown)}')
     if raw.get('version', 1) != 1:
@@ -117,27 +138,44 @@ def suite(path):
     runtime = raw.get('runtime', {})
     if not isinstance(runtime, dict) or set(runtime) - {'max_model_len', 'batch_size', 'kv_cache_memory_bytes'}:
         raise ValueError('runtime supports max_model_len, batch_size, kv_cache_memory_bytes; other v1 settings are fixed')
-    defaults = RUNTIME
-    if models == ['int4-v1']:
-        defaults = RUNTIME | dict(tensor_parallel_size=1,
-            gpu_device='GPU-613c7d78-a76d-306b-05da-1db1f15a5032',
-            max_model_len=98304, kv_cache_dtype='fp8',
-            kv_cache_memory_bytes=3758096384, enforce_eager=False,
-            enable_prefix_caching=True, max_num_batched_tokens=2048)
-    runtime = defaults | runtime
-    positive(runtime['batch_size'], 'batch_size', 16)
-    positive(runtime['max_model_len'], 'max_model_len', 98304)
-    positive(runtime['kv_cache_memory_bytes'], 'kv_cache_memory_bytes', 4 * 1024**3)
-    if any(s['tokens'] and s['tokens'] >= runtime['max_model_len'] for s in selected):
-        raise ValueError('output limits must be smaller than context length')
+    requested_profiles = raw.get('runtime_profiles', {})
+    if not isinstance(requested_profiles, dict) or set(requested_profiles) - set(models):
+        raise ValueError('runtime_profiles must map selected model names to named profiles')
+    runtimes = {}
+    for model in models:
+        if model in requested_profiles:
+            profile = requested_profiles[model]
+            if profile not in RUNTIME_PROFILES:
+                raise ValueError(f'unknown runtime profile: {profile}')
+            defaults = RUNTIME_PROFILES[profile]
+        elif models == ['int4-v1']:
+            defaults = RUNTIME_PROFILES['int4-v1-96k-fp8-tp1']
+        else:
+            defaults = RUNTIME
+        resolved = defaults | runtime
+        positive(resolved['batch_size'], 'batch_size', 16)
+        positive(resolved['max_model_len'], 'max_model_len', 262144)
+        positive(resolved['kv_cache_memory_bytes'], 'kv_cache_memory_bytes', 8 * 1024**3)
+        if any(s['tokens'] and s['tokens'] >= resolved['max_model_len'] for s in selected):
+            raise ValueError(f'output limits must be smaller than context length for {model}')
+        runtimes[model] = resolved
     budgets = raw.get('budgets', {})
-    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds'}:
+    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours'}:
         raise ValueError('unknown budgets key')
     budgets = dict(active_hours=24, queue_hours=24, grade_seconds=120) | budgets
     positive(budgets['active_hours'], 'active_hours', 48)
     positive(budgets['queue_hours'], 'queue_hours', 24)
     positive(budgets['grade_seconds'], 'grade_seconds', 600)
-    return dict(version=1, models=models, benchmarks=selected, seed=seed, runtime=runtime, budgets=budgets)
+    model_hours = budgets.get('model_active_hours', {})
+    if not isinstance(model_hours, dict) or set(model_hours) - set(models):
+        raise ValueError('model_active_hours must map selected model names to hour limits')
+    budgets['model_active_hours'] = {m: model_hours.get(m, budgets['active_hours']) for m in models}
+    for model, hours in budgets['model_active_hours'].items():
+        positive(hours, f'model_active_hours[{model}]', 48)
+    # Retain runtime for older callers; new workers use runtimes[model].
+    return dict(version=1, models=models, benchmarks=selected, seed=seed,
+                runtime=runtimes[models[0]], runtimes=runtimes,
+                runtime_profiles=requested_profiles, budgets=budgets)
 
 
 def sample(categories, count, seed):

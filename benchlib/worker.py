@@ -71,9 +71,10 @@ def prepare():
         evalplus_software=read_json('/work/evalplus-software.json') if Path('/work/evalplus-software.json').exists() else {}))
 
 
-def runtime_args(config):
+def runtime_args(config, model=None):
     excluded = {'concurrency', 'batch_size', 'speculative_decoding', 'gpu_device'}
-    return {k: v for k, v in config['runtime'].items() if k not in excluded} | dict(
+    runtime = config.get('runtimes', {}).get(model, config['runtime']) if model else config['runtime']
+    return {k: v for k, v in runtime.items() if k not in excluded} | dict(
         pretrained='/model', seed=config['seed'], add_bos_token=False, batch_size=1, max_num_seqs=1)
 
 
@@ -81,7 +82,7 @@ def record_path(stage, item, kind='result'):
     return Path(stage) / kind / (digest(item) + '.json')
 
 
-def harness(stage_path, benchmark):
+def harness(stage_path, benchmark, model=None):
     from lm_eval import simple_evaluate
     from lm_eval.models.vllm_causallms import VLLM
     config = read_json('/work/frozen.json')['suite']
@@ -98,7 +99,7 @@ def harness(stage_path, benchmark):
     for task_name, task in loaded.items():
         if digest(list(task.eval_docs)) != frozen['prepared']['dataset_hashes'][task_name]:
             raise RuntimeError('cached dataset content differs from frozen revision: ' + task_name)
-    lm = VLLM(**runtime_args(config))
+    lm = VLLM(**runtime_args(config, model))
     original_generate = lm._model_generate
     def capture(*args, **kwargs):
         outputs = original_generate(*args, **kwargs)
@@ -153,7 +154,7 @@ def harness(stage_path, benchmark):
             raise RuntimeError('harness omitted selected results')
 
 
-def humaneval_generate(stage_path):
+def humaneval_generate(stage_path, model=None):
     import openai
     from evalplus.provider.openai import OpenAIChatDecoder
     from evalplus.gen.util import openai_request
@@ -168,7 +169,7 @@ def humaneval_generate(stage_path):
     pending = [i for i in selected if not record_path(stage_path, i, 'generation').exists()]
     if not pending:
         return
-    r = config['runtime']
+    r = config.get('runtimes', {}).get(model, config['runtime']) if model else config['runtime']
     command = ['python', '-m', 'vllm.entrypoints.openai.api_server', '--model', '/model',
         '--served-model-name', 'bench', '--host', '127.0.0.1', '--port', '8000',
         '--tensor-parallel-size', str(r['tensor_parallel_size']), '--max-model-len', str(r['max_model_len']),
@@ -248,6 +249,7 @@ def main():
     parser.add_argument('action', choices=['prepare', 'harness', 'generate', 'grade', 'export_he'])
     parser.add_argument('--stage')
     parser.add_argument('--benchmark')
+    parser.add_argument('--model')
     args = parser.parse_args()
     if args.action == 'export_he':
         from evalplus.data import get_human_eval_plus
@@ -258,9 +260,9 @@ def main():
     elif args.action == 'prepare':
         prepare()
     elif args.action == 'harness':
-        harness(args.stage, args.benchmark)
+        harness(args.stage, args.benchmark, args.model)
     elif args.action == 'generate':
-        humaneval_generate(args.stage)
+        humaneval_generate(args.stage, args.model)
     else:
         grade()
 

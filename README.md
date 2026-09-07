@@ -19,6 +19,10 @@ validated TP2 comparison separately; this v1 acceptance suite remains TP1.
 The completed INT4 v1 smoke is summarized in
 [`docs/int4-v1-smoke-2026-09-07.md`](docs/int4-v1-smoke-2026-09-07.md).
 
+`examples/paired-profiles-acceptance.yaml` demonstrates autonomous serial
+switching: INT8-v2 uses the imported 262K FP8 TP2 profile, then INT4-v1 uses
+the imported 96K FP8 TP1 GPU0 profile. Each model has its own active-hour cap.
+
 ## Setup
 
 Use a checkout under `/home/emmy/workspace` and a project-local environment:
@@ -101,6 +105,17 @@ The INT4-only acceptance suite overrides this with the validated GPU0 TP1
 profile: 98,304-token context, FP8 KV, 3.5 GiB KV allocation, prefix caching,
 non-eager execution, and 2,048-token chunked prefill.
 All effective settings are saved in `frozen.json`.
+
+Named native serving profiles are opt-in through `runtime_profiles`:
+`int8-v2-262k-fp8-tp2`, `int4-v1-96k-fp8-tp1`, and
+`int4-v1-96k-fp8-tp2`. A suite may assign a different profile to each selected
+model. `budgets.model_active_hours` bounds each model independently while
+`budgets.active_hours` remains the whole-run cap.
+
+The imported INT8-v2 profile retains the native 262K FP8 TP2 settings but uses
+4.5 GiB of KV reservation per GPU. The native 3 GiB template admitted the
+original INT8 profile, while v2's vLLM admission check required 4.16 GiB at
+262,144 tokens; a real v2 smoke validated 283,236 available KV tokens.
 
 IFEval uses the pinned leaderboard task with the local 1,024-token cap.
 HumanEval+ uses EvalPlus 0.3.1's OpenAI chat prompt, greedy generation, sanitizer,
