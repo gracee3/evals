@@ -7,12 +7,12 @@ runtime_profiles:
   int8-v2: int8-v2-16k-bf16-tp2
 seed: 42
 benchmarks:
-  - {name: ifeval, count: 16}
-  - {name: humaneval_plus, count: 16}
-  - {name: bbh, count: 16}
-  - {name: mmlu_pro, count: 16}
+  - {name: ifeval, count: 8}
+  - {name: humaneval_plus, count: 8}
+  - {name: bbh, count: 8}
+  - {name: mmlu_pro, count: 8}
 budgets:
-  active_hours: 4
-  model_active_hours: {int4-v1: 2, int8-v2: 2}
+  active_hours: 2
+  model_active_hours: {int4-v1: 1, int8-v2: 1}
   queue_hours: 8
   grade_seconds: 120
