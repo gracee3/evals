@@ -1,0 +1,10 @@
+# Eight examples total. Single INT4 profile defaults to GPU 0, TP1, BF16 KV.
+version: 1
+models: [int4-v1]
+seed: 42
+benchmarks:
+  - {name: ifeval, count: 2}
+  - {name: humaneval_plus, count: 2}
+  - {name: bbh, count: 2}
+  - {name: mmlu_pro, count: 2}
+runtime: {batch_size: 1}

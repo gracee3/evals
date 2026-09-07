@@ -5,6 +5,14 @@ Version 1 supports IFEval, HumanEval+, BBH, and MMLU-Pro. It defaults to the loc
 INT8 Agentic v2 checkpoint; the comparison suite adds the original INT8 checkpoint.
 No weights are downloaded. Runs and reports are private and remain outside Git.
 
+`examples/int4-acceptance.yaml` runs two examples per benchmark against the
+completed expanded-400 INT4 v1 checkpoint. A suite containing only `int4-v1`
+uses TP1 on physical GPU 0 by UUID, 16K context and 1.25 GiB BF16 KV allocation.
+The GPU choice and effective settings are frozen in each run. The shared lock
+and whole-host idle checks remain in force. Two-model suites retain TP2;
+INT4 paired runs are not covered by the single-GPU acceptance check.
+HumanEval's owned server and the native harness both use the resolved TP setting.
+
 ## Setup
 
 Use a checkout under `/home/emmy/workspace` and a project-local environment:

@@ -159,7 +159,7 @@ class Supervisor:
 
     def gpu_stage(self, model, benchmark, stage):
         name = 'bench-' + uuid.uuid4().hex
-        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code')
+        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code', gpu_device=self.config['runtime'].get('gpu_device'))
         args += mount(PROFILES[model], '/model', True) + mount(self.run, '/work')
         args += mount(prepared_path(self.config), '/prepared', True)
         args += ['--env', 'HF_HOME=/work/cache', '--env', 'HF_HUB_OFFLINE=1', '--env', 'HF_DATASETS_OFFLINE=1',
