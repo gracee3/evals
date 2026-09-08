@@ -23,6 +23,13 @@ The completed INT4 v1 smoke is summarized in
 switching: INT8-v2 uses the imported 262K FP8 TP2 profile, then INT4-v1 uses
 the imported 96K FP8 TP1 GPU0 profile. Each model has its own active-hour cap.
 
+Native lm-eval stages are grouped by model. IFEval, BBH, and MMLU-Pro share one
+vLLM process and model allocation for each selected model; the process is torn
+down before the next model. HumanEval+ keeps its separate owned HTTP server for
+generation and grading. This removes repeated model loading and most repeated
+Triton startup compilation while preserving the stage-scoped result caches and
+the full teardown boundary between models.
+
 ## Setup
 
 Use a checkout under `/home/emmy/workspace` and a project-local environment:

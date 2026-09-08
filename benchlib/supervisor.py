@@ -73,6 +73,7 @@ class Supervisor:
         self.watchdog = None
         self.watchdog_pipe = None
         self.exhausted_models = set()
+        self.group_deadline_seconds = None
         self.state.setdefault('model_active_seconds', {})
 
     def save(self):
@@ -109,6 +110,8 @@ class Supervisor:
                 if model_limit and self.state['model_active_seconds'].get(model, 0) >= model_limit * 3600:
                     raise ModelDeadline(f'model active budget exhausted: {model}')
                 limit = next(s['seconds'] for s in self.config['benchmarks'] if s['name'] == name)
+                if self.group_deadline_seconds is not None:
+                    limit = self.group_deadline_seconds
                 if self.state['stages'][self.current]['elapsed'] >= limit:
                     raise Deadline('stage deadline exhausted')
         elif self.state['queue_seconds'] >= self.config['budgets']['queue_hours'] * 3600:
@@ -203,6 +206,34 @@ class Supervisor:
             time.sleep(1)
         raise Halt('GPUs remain occupied after owned-container cleanup')
 
+    def gpu_group(self, model, benchmarks):
+        """Run native lm-eval stages through one model allocation."""
+        name = 'bench-' + uuid.uuid4().hex
+        runtime = self.config.get('runtimes', {}).get(model, self.config['runtime'])
+        args = container_args(name, self.owner, self.frozen['prepared']['image'], gpu=True, code=self.run / 'code', gpu_device=runtime.get('gpu_device'))
+        args += mount(PROFILES[model], '/model', True) + mount(self.run, '/work')
+        args += mount(prepared_path(self.config), '/prepared', True)
+        args += ['--env', 'HF_HOME=/work/cache', '--env', 'HF_HUB_OFFLINE=1', '--env', 'HF_DATASETS_OFFLINE=1',
+                 '--env', 'VLLM_CACHE_ROOT=/work/vllm-cache', '--env', 'TRITON_CACHE_DIR=/work/triton-cache',
+                 '--env', 'CUDA_CACHE_PATH=/work/cuda-cache', '--env', 'HOME=/tmp', '--entrypoint', 'python',
+                 self.frozen['prepared']['image'], '-m', 'benchlib.worker', 'harness-group',
+                 '--stage', '/work/stages', '--benchmarks', ','.join(benchmarks), '--model', model]
+        log = self.run / 'stages' / model / '_group-native.runtime.log'
+        rc = self.execute(args, log)
+        text = log.read_text(errors='replace')[-200000:]
+        if rc:
+            raise RuntimeFailure(f'group container exit {rc}: {text[-5000:]}')
+        if runtime_error(text):
+            raise RuntimeFailure('group runtime log contains OOM, exception, CUDA error, or input truncation')
+        for attempt in range(120):
+            self.tick()
+            if gpu_idle():
+                return
+            if attempt % 10 == 0:
+                print(f'Waiting for GPU teardown: {attempt}s', flush=True)
+            time.sleep(1)
+        raise Halt('GPUs remain occupied after owned-container cleanup')
+
     def grade(self, stage):
         problems = read_json(prepared_path(self.config) / 'humaneval.json')
         for item in self.frozen['prepared']['selection']['humaneval_plus']:
@@ -247,7 +278,69 @@ class Supervisor:
             for model in self.config['models']:
                 if model in self.exhausted_models:
                     continue
-                for benchmark in self.config['benchmarks']:
+                native = [s for s in self.config['benchmarks'] if s['name'] != 'humaneval_plus']
+                pending_native = [s for s in native
+                                  if self.state['stages'].get(model + '/' + s['name'], {}).get('status') not in ('complete',)]
+                if pending_native:
+                    self.current = model + '/' + pending_native[0]['name']
+                    self.group_deadline_seconds = sum(s['seconds'] for s in pending_native)
+                    for spec in pending_native:
+                        state = self.state['stages'].setdefault(model + '/' + spec['name'], dict(status='pending', elapsed=0, retries=0, errors=[]))
+                        state['status'] = 'running'
+                    self.save()
+                    try:
+                        self.tick()
+                        if not gpu_idle():
+                            raise Halt('GPU availability changed under shared lock')
+                        self.gpu_group(model, [s['name'] for s in pending_native])
+                        for spec in pending_native:
+                            state = self.state['stages'][model + '/' + spec['name']]
+                            stage = self.run / 'stages' / model / spec['name']
+                            state['completed'] = len(list((stage / 'result').glob('*.json')))
+                            duration = stage / 'duration.json'
+                            if duration.is_file():
+                                state['elapsed'] = read_json(duration)['seconds']
+                            state['status'] = 'complete'
+                    except ModelDeadline as e:
+                        for spec in pending_native:
+                            state = self.state['stages'][model + '/' + spec['name']]
+                            state['status'] = 'timeout'
+                            state['errors'].append(str(e))
+                        self.exhausted_models.add(model)
+                    except Deadline as e:
+                        for spec in pending_native:
+                            state = self.state['stages'][model + '/' + spec['name']]
+                            state['status'] = 'timeout'
+                            state['errors'].append(str(e))
+                    except RuntimeFailure as e:
+                        first = self.state['stages'][self.current]
+                        first['errors'].append(str(e))
+                        if transient(str(e)) and first['retries'] < 1:
+                            first['retries'] += 1
+                            self.save()
+                            try:
+                                self.gpu_group(model, [s['name'] for s in pending_native])
+                            except RuntimeFailure as retry_error:
+                                first['errors'].append(str(retry_error))
+                                first['status'] = 'failed'
+                                raise Halt('persistent grouped runtime failure; see group log')
+                            for spec in pending_native:
+                                state = self.state['stages'][model + '/' + spec['name']]
+                                stage = self.run / 'stages' / model / spec['name']
+                                state['completed'] = len(list((stage / 'result').glob('*.json')))
+                                duration = stage / 'duration.json'
+                                if duration.is_file():
+                                    state['elapsed'] = read_json(duration)['seconds']
+                                state['status'] = 'complete'
+                        else:
+                            first['status'] = 'failed'
+                            raise Halt('persistent grouped runtime failure; see group log')
+                    finally:
+                        self.group_deadline_seconds = None
+                    self.save()
+                    report(self.run)
+                    self.current = None
+                for benchmark in [s['name'] for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
                     name = benchmark['name']
                     self.current = model + '/' + name
                     state = self.state['stages'].setdefault(self.current, dict(status='pending', elapsed=0, retries=0, errors=[]))
