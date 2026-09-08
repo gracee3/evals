@@ -218,6 +218,7 @@ class Supervisor:
                  '--env', 'CUDA_CACHE_PATH=/work/cuda-cache', '--env', 'HOME=/tmp', '--entrypoint', 'python',
                  self.frozen['prepared']['image'], '-m', 'benchlib.worker', 'harness-group',
                  '--stage', '/work/stages', '--benchmarks', ','.join(benchmarks), '--model', model]
+        (self.run / 'stages' / model).mkdir(parents=True, exist_ok=True, mode=0o700)
         log = self.run / 'stages' / model / '_group-native.runtime.log'
         rc = self.execute(args, log)
         text = log.read_text(errors='replace')[-200000:]
