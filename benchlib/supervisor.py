@@ -154,6 +154,9 @@ class Supervisor:
         self.save()
 
     def execute(self, args, log, *, grade_limit=None):
+        if '--gpus' in args and 'gpu_groups' in self.frozen:
+            from benchlib.distribution import execute
+            return execute(self, args, log)
         start = time.monotonic()
         with open(log, 'a') as output:
             process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT)

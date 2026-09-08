@@ -76,11 +76,15 @@ def launch(path, resume=False):
 
 def new_run(config):
     prep = verify_prepared(config)
+    from benchlib.distribution import allocate
+    allocation = allocate(config) if 'distribution' in config else None
     run_id = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + uuid.uuid4().hex[:12]
     path = ROOT / 'runs' / run_id
     path.mkdir(parents=True, mode=0o700)
     frozen = dict(suite=config, prepared=prep, owner=uuid.uuid4().hex,
                   created_at=time.time(), git_commit=command(['git', '-C', PROJECT, 'rev-parse', 'HEAD']))
+    if allocation is not None:
+        frozen['gpu_groups'] = allocation
     frozen['identity'] = digest(frozen)
     write_json(path / 'frozen.json', frozen)
     (path / 'code').mkdir(mode=0o700)
@@ -110,7 +114,10 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('list')
     for verb in ('plan', 'prepare', 'run'):
-        sub.add_parser(verb).add_argument('suite')
+        command_parser = sub.add_parser(verb)
+        command_parser.add_argument('suite')
+        command_parser.add_argument('--scale-gpus', nargs='+', metavar='GPU',
+                                    help='auto or GPU UUIDs to distribute examples across TP-sized groups')
     for verb in ('status', 'stop', 'resume', 'report'):
         sub.add_parser(verb).add_argument('run_id')
     args = parser.parse_args()
@@ -119,6 +126,12 @@ def main():
             print(json.dumps(dict(benchmarks=BENCHMARKS, models=PROFILES), indent=2))
         elif args.command in ('plan', 'prepare', 'run'):
             config = suite(args.suite)
+            if args.scale_gpus:
+                devices = args.scale_gpus
+                if devices != ['auto'] and (len(set(devices)) != len(devices)
+                        or any(not d.startswith('GPU-') or ',' in d for d in devices)):
+                    raise ValueError('--scale-gpus requires auto or distinct GPU UUIDs')
+                config['distribution'] = {'gpus': 'auto' if devices == ['auto'] else devices}
             if args.command == 'plan':
                 print(json.dumps(dict(suite=config,
                     planned_examples=len(config['models']) * sum(s['count'] for s in config['benchmarks']),
