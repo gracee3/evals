@@ -69,7 +69,7 @@ def gpu_idle():
     apps = command(['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader,nounits'])
     memory = command(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'])
     used = [int(v.strip()) for v in memory.splitlines()]
-    return not apps and len(used) == 2 and max(used) < 512
+    return not apps and bool(used) and max(used) < 512
 
 
 def memory():

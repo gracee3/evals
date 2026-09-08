@@ -61,6 +61,41 @@ def test_serial_resume_no_duplicate_scores(tmp_path, monkeypatch):
     assert all(p['paired'] == 2 for p in result['paired'])
 
 
+def test_humaneval_stage_iterates_benchmark_specs(tmp_path, monkeypatch):
+    frozen = fixture_run(tmp_path)
+    humaneval = dict(name='humaneval_plus', count=2, seconds=100, tokens=2048)
+    frozen['suite']['benchmarks'].append(humaneval)
+    frozen['prepared']['selection']['humaneval_plus'] = [
+        {'task': f'HumanEval/{i}', 'index': i} for i in range(2)]
+    write_json(tmp_path / 'frozen.json', frozen)
+    patch_host(monkeypatch, tmp_path)
+
+    def group(self, model, benchmarks):
+        for benchmark in benchmarks:
+            for item in frozen['prepared']['selection'][benchmark]:
+                write_json(record_path(tmp_path / 'stages' / model / benchmark, item),
+                    dict(item=item, score=1.0))
+
+    def generate(self, model, benchmark, stage):
+        for item in frozen['prepared']['selection'][benchmark]:
+            write_json(record_path(stage, item, 'generation'),
+                dict(item=item, solution='saved', truncated=False))
+
+    def grade(self, stage):
+        for item in frozen['prepared']['selection']['humaneval_plus']:
+            write_json(record_path(stage, item), dict(item=item, score=1.0))
+
+    monkeypatch.setattr(Supervisor, 'gpu_group', group)
+    monkeypatch.setattr(Supervisor, 'gpu_stage', generate)
+    monkeypatch.setattr(Supervisor, 'grade', grade)
+    supervisor = Supervisor(tmp_path)
+    supervisor.work()
+
+    assert supervisor.state['status'] == 'complete'
+    assert all(supervisor.state['stages'][f'{model}/humaneval_plus']['status'] == 'complete'
+               for model in frozen['suite']['models'])
+
+
 def test_one_transient_retry_persistent_failure_stops(tmp_path, monkeypatch):
     fixture_run(tmp_path)
     patch_host(monkeypatch, tmp_path)
@@ -110,6 +145,27 @@ def test_cache_paths_isolate_checkpoints(tmp_path):
     fixture_run(tmp_path)
     item = dict(task='ifeval', index=1)
     assert record_path(tmp_path / 'stages/a/ifeval', item) != record_path(tmp_path / 'stages/b/ifeval', item)
+
+
+def test_completion_mode_keeps_stop_and_resource_guards(tmp_path, monkeypatch):
+    from benchlib.host import ResourceGuard
+    fixture_run(tmp_path)
+    patch_host(monkeypatch, tmp_path)
+    supervisor = Supervisor(tmp_path)
+    supervisor.config['budgets']['run_to_completion'] = True
+    supervisor.active = True
+    supervisor.guard = ResourceGuard(0)
+    supervisor.current = 'a/ifeval'
+    supervisor.state['active_seconds'] = 100 * 3600
+    supervisor.state['stages']['a/ifeval'] = dict(elapsed=100 * 3600)
+    supervisor.tick()
+    (tmp_path / 'stop').touch()
+    with pytest.raises(Halt, match='stop requested'):
+        supervisor.tick()
+    (tmp_path / 'stop').unlink()
+    monkeypatch.setattr(supervisor.guard, 'check', lambda *args: True)
+    with pytest.raises(Halt, match='resource guard'):
+        supervisor.tick()
 
 
 def test_expected_vllm_shutdown_traceback_after_generation_marker_is_ignored():

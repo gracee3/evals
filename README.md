@@ -91,6 +91,35 @@ inference. `examples/acceptance.yaml` selects two examples per benchmark.
 
 ## Suite semantics
 
+`budgets: {run_to_completion: true}` disables stage, model and overall active
+time cutoffs. Queue limits, explicit stop, RAM/swap protection, inference-error
+handling, and generated-code grading timeouts still apply. Elapsed time is still
+recorded. `examples/paired-16k-distributed-complete.yaml` uses this mode for a
+fresh paired evaluation on the two local GPUs.
+
+Opt in to independent model replicas with `--scale-gpus auto` on **both**
+`prepare` and `run` (and optionally `plan`), or list GPU UUIDs after the flag.
+The equivalent suite setting is `distribution: {gpus: auto}` or
+`distribution: {gpus: [GPU-uuid1, GPU-uuid2]}`.
+
+At launch, the selected devices are frozen into disjoint groups of the model's
+tensor-parallel size. Four GPUs give four TP1 replicas or two TP2 replicas;
+incomplete groups remain unused. The replica count is capped by the smallest
+benchmark count. In distribution mode this pool overrides a profile's single
+`gpu_device` pin, while preserving its TP size and inference settings.
+The whole-host idle gate and shared exclusive lock remain required; `auto`
+means all detected GPUs, not opportunistically sharing a busy host.
+
+Replicas receive stable, disjoint slices of each benchmark's frozen IDs and
+isolated response, compiler, and dataset caches under `replicas/`. Their committed
+records are collected into the regular stage directories for live reporting.
+HumanEval generation is parallel; grading remains serial after all GPU workers
+stop. Budgets measure wall time, not summed replica time. Resume preserves
+the frozen allocation and each replica's committed work. GPU replicas require
+enough host RAM for simultaneous model loading; existing RAM/swap guards apply.
+This option has automated orchestration coverage; multi-GPU replica inference
+still requires a live acceptance run before treating throughput as validated.
+
 See the commented [default suite](examples/smoke.yaml) and
 [two-model comparison](examples/comparison.yaml). Counts are **total per benchmark**,
 not per BBH task or MMLU subject. Seed 42 selects examples deterministically;

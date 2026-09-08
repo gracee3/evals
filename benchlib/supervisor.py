@@ -102,6 +102,8 @@ class Supervisor:
             available, swap = memory()
             if self.guard.check(available, swap):
                 raise Halt('resource guard: available RAM below 8 GiB or swap growth above 32 GiB for ten seconds')
+            if self.config['budgets'].get('run_to_completion', False):
+                return
             if self.state['active_seconds'] >= self.config['budgets']['active_hours'] * 3600:
                 raise Halt('overall active budget exhausted')
             if self.current:
@@ -154,6 +156,9 @@ class Supervisor:
         self.save()
 
     def execute(self, args, log, *, grade_limit=None):
+        if '--gpus' in args and 'gpu_groups' in self.frozen:
+            from benchlib.distribution import execute
+            return execute(self, args, log)
         start = time.monotonic()
         with open(log, 'a') as output:
             process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT)
@@ -341,7 +346,7 @@ class Supervisor:
                     self.save()
                     report(self.run)
                     self.current = None
-                for benchmark in [s['name'] for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
+                for benchmark in [s for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
                     name = benchmark['name']
                     self.current = model + '/' + name
                     state = self.state['stages'].setdefault(self.current, dict(status='pending', elapsed=0, retries=0, errors=[]))

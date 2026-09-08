@@ -121,7 +121,7 @@ def suite(path):
     raw = yaml.safe_load(Path(path).read_text())
     if not isinstance(raw, dict):
         raise ValueError('suite must be a YAML mapping')
-    unknown = set(raw) - {'version', 'models', 'benchmarks', 'seed', 'runtime', 'runtime_profiles', 'budgets'}
+    unknown = set(raw) - {'version', 'models', 'benchmarks', 'seed', 'runtime', 'runtime_profiles', 'budgets', 'distribution'}
     if unknown:
         raise ValueError(f'unknown suite keys: {sorted(unknown)}')
     if raw.get('version', 1) != 1:
@@ -176,8 +176,10 @@ def suite(path):
             raise ValueError(f'output limits must be smaller than context length for {model}')
         runtimes[model] = resolved
     budgets = raw.get('budgets', {})
-    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours'}:
+    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours', 'run_to_completion'}:
         raise ValueError('unknown budgets key')
+    if 'run_to_completion' in budgets and type(budgets['run_to_completion']) is not bool:
+        raise ValueError('run_to_completion must be a boolean')
     budgets = dict(active_hours=24, queue_hours=24, grade_seconds=120) | budgets
     positive(budgets['active_hours'], 'active_hours', 48)
     positive(budgets['queue_hours'], 'queue_hours', 24)
@@ -189,9 +191,20 @@ def suite(path):
     for model, hours in budgets['model_active_hours'].items():
         positive(hours, f'model_active_hours[{model}]', 48)
     # Retain runtime for older callers; new workers use runtimes[model].
-    return dict(version=1, models=models, benchmarks=selected, seed=seed,
+    result = dict(version=1, models=models, benchmarks=selected, seed=seed,
                 runtime=runtimes[models[0]], runtimes=runtimes,
                 runtime_profiles=requested_profiles, budgets=budgets)
+    if 'distribution' in raw:
+        distribution = raw['distribution']
+        if not isinstance(distribution, dict) or set(distribution) != {'gpus'}:
+            raise ValueError('distribution requires gpus: auto or a list of GPU UUIDs')
+        devices = distribution['gpus']
+        if devices != 'auto' and (not isinstance(devices, list) or not devices
+                or any(not isinstance(d, str) or not d.startswith('GPU-') or ',' in d for d in devices)
+                or len(set(devices)) != len(devices)):
+            raise ValueError('distribution.gpus must be auto or distinct GPU UUIDs')
+        result['distribution'] = distribution
+    return result
 
 
 def sample(categories, count, seed):
