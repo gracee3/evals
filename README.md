@@ -91,6 +91,12 @@ inference. `examples/acceptance.yaml` selects two examples per benchmark.
 
 ## Suite semantics
 
+`budgets: {run_to_completion: true}` disables stage, model and overall active
+time cutoffs. Queue limits, explicit stop, RAM/swap protection, inference-error
+handling, and generated-code grading timeouts still apply. Elapsed time is still
+recorded. `examples/paired-16k-distributed-complete.yaml` uses this mode for a
+fresh paired evaluation on the two local GPUs.
+
 Opt in to independent model replicas with `--scale-gpus auto` on **both**
 `prepare` and `run` (and optionally `plan`), or list GPU UUIDs after the flag.
 The equivalent suite setting is `distribution: {gpus: auto}` or

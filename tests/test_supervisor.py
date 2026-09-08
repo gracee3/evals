@@ -147,6 +147,27 @@ def test_cache_paths_isolate_checkpoints(tmp_path):
     assert record_path(tmp_path / 'stages/a/ifeval', item) != record_path(tmp_path / 'stages/b/ifeval', item)
 
 
+def test_completion_mode_keeps_stop_and_resource_guards(tmp_path, monkeypatch):
+    from benchlib.host import ResourceGuard
+    fixture_run(tmp_path)
+    patch_host(monkeypatch, tmp_path)
+    supervisor = Supervisor(tmp_path)
+    supervisor.config['budgets']['run_to_completion'] = True
+    supervisor.active = True
+    supervisor.guard = ResourceGuard(0)
+    supervisor.current = 'a/ifeval'
+    supervisor.state['active_seconds'] = 100 * 3600
+    supervisor.state['stages']['a/ifeval'] = dict(elapsed=100 * 3600)
+    supervisor.tick()
+    (tmp_path / 'stop').touch()
+    with pytest.raises(Halt, match='stop requested'):
+        supervisor.tick()
+    (tmp_path / 'stop').unlink()
+    monkeypatch.setattr(supervisor.guard, 'check', lambda *args: True)
+    with pytest.raises(Halt, match='resource guard'):
+        supervisor.tick()
+
+
 def test_expected_vllm_shutdown_traceback_after_generation_marker_is_ignored():
     log = ('POST /v1/chat/completions 200 OK\n'
            'BENCH_HUMANEVAL_GENERATION_COMPLETE\n'

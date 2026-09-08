@@ -102,6 +102,8 @@ class Supervisor:
             available, swap = memory()
             if self.guard.check(available, swap):
                 raise Halt('resource guard: available RAM below 8 GiB or swap growth above 32 GiB for ten seconds')
+            if self.config['budgets'].get('run_to_completion', False):
+                return
             if self.state['active_seconds'] >= self.config['budgets']['active_hours'] * 3600:
                 raise Halt('overall active budget exhausted')
             if self.current:

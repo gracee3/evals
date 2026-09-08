@@ -176,8 +176,10 @@ def suite(path):
             raise ValueError(f'output limits must be smaller than context length for {model}')
         runtimes[model] = resolved
     budgets = raw.get('budgets', {})
-    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours'}:
+    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours', 'run_to_completion'}:
         raise ValueError('unknown budgets key')
+    if 'run_to_completion' in budgets and type(budgets['run_to_completion']) is not bool:
+        raise ValueError('run_to_completion must be a boolean')
     budgets = dict(active_hours=24, queue_hours=24, grade_seconds=120) | budgets
     positive(budgets['active_hours'], 'active_hours', 48)
     positive(budgets['queue_hours'], 'queue_hours', 24)

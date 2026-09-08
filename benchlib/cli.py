@@ -136,7 +136,8 @@ def main():
                 print(json.dumps(dict(suite=config,
                     planned_examples=len(config['models']) * sum(s['count'] for s in config['benchmarks']),
                     maximum_stage_hours=len(config['models']) * sum(s['seconds'] for s in config['benchmarks']) / 3600,
-                    estimate='Deadline ceiling, not a throughput prediction. Preparation and queue time are separate.',
+                    estimate=('Run to completion: active and stage deadlines disabled.' if config['budgets'].get('run_to_completion') else
+                              'Deadline ceiling, not a throughput prediction. Preparation and queue time are separate.'),
                     preparation=str(prepared_path(config))), indent=2))
             elif args.command == 'prepare':
                 print(prepare(config))
