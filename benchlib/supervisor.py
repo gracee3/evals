@@ -341,7 +341,7 @@ class Supervisor:
                     self.save()
                     report(self.run)
                     self.current = None
-                for benchmark in [s['name'] for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
+                for benchmark in [s for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
                     name = benchmark['name']
                     self.current = model + '/' + name
                     state = self.state['stages'].setdefault(self.current, dict(status='pending', elapsed=0, retries=0, errors=[]))
