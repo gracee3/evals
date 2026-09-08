@@ -34,16 +34,18 @@ def test_serial_resume_no_duplicate_scores(tmp_path, monkeypatch):
     patch_host(monkeypatch, tmp_path)
     calls = []
     interrupted = [False]
-    def stage(self, model, benchmark, directory):
-        calls.append((model, benchmark))
-        for item in frozen['prepared']['selection'][benchmark]:
-            destination = record_path(directory, item)
-            if not destination.exists():
-                write_json(destination, dict(item=item, score=float(item['index'] == 0)))
-                if not interrupted[0]:
-                    interrupted[0] = True
-                    raise Halt('stop requested')
-    monkeypatch.setattr(Supervisor, 'gpu_stage', stage)
+    def group(self, model, benchmarks):
+        calls.append((model, tuple(benchmarks)))
+        for benchmark in benchmarks:
+            directory = tmp_path / 'stages' / model / benchmark
+            for item in frozen['prepared']['selection'][benchmark]:
+                destination = record_path(directory, item)
+                if not destination.exists():
+                    write_json(destination, dict(item=item, score=float(item['index'] == 0)))
+                    if not interrupted[0]:
+                        interrupted[0] = True
+                        raise Halt('stop requested')
+    monkeypatch.setattr(Supervisor, 'gpu_group', group)
     first = Supervisor(tmp_path)
     first.work()
     committed = record_path(tmp_path / 'stages/a/ifeval', frozen['prepared']['selection']['ifeval'][0])
@@ -53,7 +55,7 @@ def test_serial_resume_no_duplicate_scores(tmp_path, monkeypatch):
     second.work()
     assert second.state['status'] == 'complete'
     assert committed.stat().st_mtime_ns == before
-    assert calls == [('a', 'ifeval'), ('a', 'ifeval'), ('a', 'bbh'), ('b', 'ifeval'), ('b', 'bbh')]
+    assert calls == [('a', ('ifeval', 'bbh')), ('a', ('ifeval', 'bbh')), ('b', ('ifeval', 'bbh'))]
     result = report(tmp_path)
     assert all(r['score'] == .5 and not r['partial'] for r in result['results'])
     assert all(p['paired'] == 2 for p in result['paired'])
@@ -63,10 +65,10 @@ def test_one_transient_retry_persistent_failure_stops(tmp_path, monkeypatch):
     fixture_run(tmp_path)
     patch_host(monkeypatch, tmp_path)
     calls = []
-    def stage(*args):
+    def group(*args):
         calls.append(1)
         raise RuntimeFailure('connection reset by peer')
-    monkeypatch.setattr(Supervisor, 'gpu_stage', stage)
+    monkeypatch.setattr(Supervisor, 'gpu_group', group)
     supervisor = Supervisor(tmp_path)
     supervisor.work()
     assert len(calls) == 2
@@ -93,9 +95,9 @@ def test_timeout_continues_partial_reports(tmp_path, monkeypatch):
     fixture_run(tmp_path)
     patch_host(monkeypatch, tmp_path)
     from benchlib.supervisor import Deadline
-    def stage(*args):
+    def group(*args):
         raise Deadline('stage deadline exhausted')
-    monkeypatch.setattr(Supervisor, 'gpu_stage', stage)
+    monkeypatch.setattr(Supervisor, 'gpu_group', group)
     supervisor = Supervisor(tmp_path)
     supervisor.work()
     assert supervisor.state['status'] == 'partial'

@@ -82,7 +82,7 @@ def record_path(stage, item, kind='result'):
     return Path(stage) / kind / (digest(item) + '.json')
 
 
-def harness(stage_path, benchmark, model=None):
+def harness(stage_path, benchmark, model=None, lm=None):
     from lm_eval import simple_evaluate
     from lm_eval.models.vllm_causallms import VLLM
     config = read_json('/work/frozen.json')['suite']
@@ -99,28 +99,33 @@ def harness(stage_path, benchmark, model=None):
     for task_name, task in loaded.items():
         if digest(list(task.eval_docs)) != frozen['prepared']['dataset_hashes'][task_name]:
             raise RuntimeError('cached dataset content differs from frozen revision: ' + task_name)
-    lm = VLLM(**runtime_args(config, model))
-    original_generate = lm._model_generate
-    def capture(*args, **kwargs):
-        outputs = original_generate(*args, **kwargs)
-        if kwargs.get('generate', True):
-            for output in outputs:
-                write_json(Path(stage_path) / 'finish' / (digest(output.prompt_token_ids) + '.json'),
-                    dict(finish_reason=output.outputs[0].finish_reason, tokens=len(output.outputs[0].token_ids)))
-        return outputs
-    lm._model_generate = capture
-    original_likelihood = lm._loglikelihood_tokens
-    def bounded_likelihood(requests, **kwargs):
-        if any(len(ctx) + len(cont) >= lm.max_length for _, ctx, cont in requests):
-            raise RuntimeError('input exceeds configured context; refusing truncation')
-        return original_likelihood(requests, **kwargs)
-    lm._loglikelihood_tokens = bounded_likelihood
-    import lm_eval.models.vllm_causallms as backend
-    def bounded_generation(tokens, max_gen_toks, max_model_len, **kwargs):
-        if len(tokens) + max_gen_toks > max_model_len:
-            raise RuntimeError('input plus output exceeds context; refusing truncation')
-        return tokens, max_gen_toks
-    backend.maybe_truncate = bounded_generation
+    owned_lm = lm is None
+    if owned_lm:
+        lm = VLLM(**runtime_args(config, model))
+    lm._bench_stage_path = Path(stage_path)
+    if not getattr(lm, '_bench_wrapped', False):
+        original_generate = lm._model_generate
+        def capture(*args, **kwargs):
+            outputs = original_generate(*args, **kwargs)
+            if kwargs.get('generate', True):
+                for output in outputs:
+                    write_json(lm._bench_stage_path / 'finish' / (digest(output.prompt_token_ids) + '.json'),
+                        dict(finish_reason=output.outputs[0].finish_reason, tokens=len(output.outputs[0].token_ids)))
+            return outputs
+        lm._model_generate = capture
+        original_likelihood = lm._loglikelihood_tokens
+        def bounded_likelihood(requests, **kwargs):
+            if any(len(ctx) + len(cont) >= lm.max_length for _, ctx, cont in requests):
+                raise RuntimeError('input exceeds configured context; refusing truncation')
+            return original_likelihood(requests, **kwargs)
+        lm._loglikelihood_tokens = bounded_likelihood
+        import lm_eval.models.vllm_causallms as backend
+        def bounded_generation(tokens, max_gen_toks, max_model_len, **kwargs):
+            if len(tokens) + max_gen_toks > max_model_len:
+                raise RuntimeError('input plus output exceeds context; refusing truncation')
+            return tokens, max_gen_toks
+        backend.maybe_truncate = bounded_generation
+        lm._bench_wrapped = True
     # Native transactional response cache survives interruption between generation and scoring.
     batch_size = config['runtime']['batch_size']
     for offset in range(0, len(pending), batch_size):
@@ -134,7 +139,6 @@ def harness(stage_path, benchmark, model=None):
             gen_kwargs={'max_gen_toks': stage_config['tokens']} if benchmark == 'ifeval' else None,
             random_seed=config['seed'], numpy_random_seed=config['seed'],
             torch_random_seed=config['seed'], fewshot_random_seed=config['seed'], bootstrap_iters=0)
-        lm.cache_hook.dbdict.close()
         write_json(Path(stage_path) / 'raw' / (digest(batch) + '.json'), result)
         for task, rows in result['samples'].items():
             for row in rows:
@@ -152,6 +156,24 @@ def harness(stage_path, benchmark, model=None):
                     execution_failure=False, raw=row))
         if any(not record_path(stage_path, i).exists() for i in batch):
             raise RuntimeError('harness omitted selected results')
+    if owned_lm:
+        lm.cache_hook.dbdict.close()
+
+
+def harness_group(stage_root, benchmarks, model=None):
+    """Run native lm-eval benchmarks with one vLLM model allocation."""
+    from lm_eval.models.vllm_causallms import VLLM
+    config = read_json('/work/frozen.json')['suite']
+    lm = VLLM(**runtime_args(config, model))
+    try:
+        for benchmark in benchmarks:
+            started = time.monotonic()
+            harness(Path(stage_root) / model / benchmark, benchmark, model, lm=lm)
+            write_json(Path(stage_root) / model / benchmark / 'duration.json',
+                       {'benchmark': benchmark, 'seconds': time.monotonic() - started,
+                        'grouped_model_process': True})
+    finally:
+        lm.cache_hook.dbdict.close()
 
 
 def humaneval_generate(stage_path, model=None):
@@ -246,9 +268,10 @@ def grade():
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['prepare', 'harness', 'generate', 'grade', 'export_he'])
+    parser.add_argument('action', choices=['prepare', 'harness', 'harness-group', 'generate', 'grade', 'export_he'])
     parser.add_argument('--stage')
     parser.add_argument('--benchmark')
+    parser.add_argument('--benchmarks')
     parser.add_argument('--model')
     args = parser.parse_args()
     if args.action == 'export_he':
@@ -261,6 +284,8 @@ def main():
         prepare()
     elif args.action == 'harness':
         harness(args.stage, args.benchmark, args.model)
+    elif args.action == 'harness-group':
+        harness_group(args.stage, args.benchmarks.split(','), args.model)
     elif args.action == 'generate':
         humaneval_generate(args.stage, args.model)
     else:
