@@ -67,6 +67,12 @@ def execute(supervisor, args, log):
                 if path.exists() and read_json(path) != frozen:
                     raise ValueError('replica identity changed; incompatible resume')
                 write_json(path, frozen)
+                # The root worker uses umask 077. Create traversed ancestors as
+                # the host user so live collection can reach committed records.
+                for benchmark in frozen['prepared']['selection']:
+                    stage = root / 'stages' / model / benchmark
+                    for kind in ('result', 'generation'):
+                        (stage / kind).mkdir(parents=True, exist_ok=True, mode=0o700)
                 if not (root / 'cache').exists():
                     command(['cp', '-a', '--reflink=auto', supervisor.run / 'cache', root / 'cache'], timeout=600)
                 workers.append((root, frozen['prepared']['selection']))

@@ -83,3 +83,4 @@ def test_sibling_completion_does_not_cleanup_early(tmp_path, monkeypatch, fail):
     for index in range(2):
         child = read_json(tmp_path / 'replicas/a' / str(index) / 'frozen.json')
         assert child['prepared']['selection']['ifeval'] == items[index::2]
+        assert (tmp_path / 'replicas/a' / str(index) / 'stages/a/ifeval/result').is_dir()
