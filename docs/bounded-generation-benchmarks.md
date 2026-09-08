@@ -6,15 +6,20 @@ resume identity, stage budgets, and paired intersection reporting as existing
 suites. Each record stores the raw response, separate reasoning and final text,
 extraction provenance, invalid state, truncation state, and grading result.
 
-IFBench is intended to use the official held-out data and upstream strict and
-loose verifiers. GPQA uses the gated `Idavidrein/gpqa` Diamond subset, with the
+IFBench uses the official held-out `allenai/IFBench_test` data and the pinned
+AllenAI verifier package in its isolated environment for strict and loose
+grading. GPQA uses the gated `Idavidrein/gpqa` Diamond subset, with the
 option order frozen in the prepared data and final-choice grading. Preparation
 must fail closed when the gated dataset is unavailable. LiveCodeBench uses its
 upstream code-generation grader and CPU-only isolated grading container; the
 dataset release, date window, grader commit, and pass@1 sampling details still
 need to be pinned before a reference comparison is called protocol matched.
+The current HF `code_generation_lite` card exposes version tags through v5;
+the loader requests `release_v6` and fails closed if that artifact is absent.
 
-The example suite is [qwen3.8-bounded-comparison.yaml](../examples/qwen3.8-bounded-comparison.yaml).
+The representative suite is [qwen3.8-bounded-comparison.yaml](../examples/qwen3.8-bounded-comparison.yaml).
+The two-example GPU acceptance suite using the validated 16K profiles is
+[qwen3.8-new-benchmarks-4h.yaml](../examples/qwen3.8-new-benchmarks-4h.yaml).
 Use `bench plan`, `bench prepare`, and then `bench run` as with existing suites.
 `bench preflight` exercises synthetic fixtures only and never starts vLLM or
 claims a model result. The published references are stored separately in

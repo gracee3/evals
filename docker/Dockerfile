@@ -19,5 +19,19 @@ COPY docker/evalplus-requirements.lock /opt/evalplus-requirements.lock
 RUN uv venv --python python --no-python-downloads /opt/evalplus && uv pip install --python /opt/evalplus/bin/python --no-cache \
     -r /opt/evalplus-requirements.lock \
     && uv pip check --python /opt/evalplus/bin/python
+
+# Keep IFBench's verifier dependencies out of the pinned lm-eval/vLLM site.
+COPY docker/ifbench-requirements.lock /opt/ifbench-requirements.lock
+RUN uv venv --python python --no-python-downloads /opt/ifbench && uv pip install --python /opt/ifbench/bin/python --no-cache \
+    -r /opt/ifbench-requirements.lock \
+    && uv pip check --python /opt/ifbench/bin/python
+
+# LiveCodeBench's official checker is kept in a separate environment. It uses
+# the base image's torch/vLLM through system-site-packages and adds only the
+# pinned evaluator source; generated code still runs inside the supervisor's
+# no-network grading container.
+RUN uv venv --python python --system-site-packages /opt/livecodebench && uv pip install --python /opt/livecodebench/bin/python --no-cache --no-deps \
+    'git+https://github.com/LiveCodeBench/LiveCodeBench.git@28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24' \
+    && uv pip check --python /opt/livecodebench/bin/python
 WORKDIR /app
 ENTRYPOINT ["python"]

@@ -80,12 +80,15 @@ def load_generation_dataset(name):
     """Load and normalize pinned upstream data; GPQA remains gated by design."""
     import datasets
     sources = {
-        'ifbench': ('allenai/IFBench', 'test'),
+        'ifbench': ('allenai/IFBench_test', 'train'),
         'gpqa_diamond': ('Idavidrein/gpqa', 'train'),
-        'livecodebench_v6': ('livecodebench/code_generation', 'test'),
+        'livecodebench_v6': ('livecodebench/code_generation_lite', 'test'),
     }
     source, split = sources[name]
-    ds = datasets.load_dataset(source, split=split, revision=PINS[source])
+    load_kwargs = {'split': split, 'revision': PINS[source]}
+    if name == 'livecodebench_v6':
+        load_kwargs['version_tag'] = 'release_v6'
+    ds = datasets.load_dataset(source, **load_kwargs)
     rows = []
     for i, raw in enumerate(ds):
         if name == 'gpqa_diamond' and raw.get('Subset', raw.get('subset', '')).lower() != 'diamond':
@@ -231,7 +234,14 @@ def generation_harness(stage_path, benchmark, model=None, lm=None):
             graded = {'score': None, 'invalid': not parts['has_final'], 'strict': None, 'loose': None,
                       'extraction': 'final answer after </think>', 'verifier': 'upstream IFBench verifier pending'}
         else:
-            graded = {'score': None, 'invalid': not parts['has_final'], 'extraction': 'code grader consumes final answer'}
+            from benchlib.newbench import grade_code
+            code = parts['final']
+            if '```' in code:
+                code = code.split('```', 2)[1]
+                code = code.removeprefix('python\n')
+            graded = grade_code(row, code, timeout=5) if row.get('input_output') else {
+                'score': None, 'invalid': not parts['has_final'], 'extraction': 'code grader consumes final answer',
+                'grader': 'LiveCodeBench grader unavailable in runtime image'}
         write_json(record_path(stage_path, item), dict(item=item, reasoning=parts['reasoning'], final=parts['final'],
             raw=response, score=graded.pop('score'), truncated=False, execution_failure=False, **graded))
     if owned_lm:

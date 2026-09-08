@@ -1,0 +1,27 @@
+# Two-example GPU acceptance: new benchmarks only.
+# INT4-v1 runs as two TP1 replicas on both GPUs; INT8-v2 then runs TP2.
+version: 1
+models: [int4-v1, int8-v2]
+runtime_profiles:
+  int4-v1: int4-v1-16k-fp8-tp1
+  int8-v2: int8-v2-16k-bf16-tp2
+distribution:
+  gpus: auto
+seed: 42
+benchmarks:
+  - {name: ifbench, count: 2, minutes: 60, tokens: 4096}
+  - {name: gpqa_diamond, count: 2, minutes: 60, tokens: 8192}
+  - {name: livecodebench_v6, count: 2, minutes: 60, tokens: 8192}
+generation:
+  enable_thinking: true
+  reasoning_effort: medium
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  preserve_thinking: true
+  request_deadline_seconds: 300
+budgets:
+  active_hours: 4
+  model_active_hours: {int4-v1: 2, int8-v2: 2}
+  queue_hours: 24
+  grade_seconds: 120

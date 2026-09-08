@@ -5,6 +5,7 @@ import ast
 import re
 import subprocess
 import tempfile
+import json
 from pathlib import Path
 
 
@@ -44,6 +45,36 @@ def grade_gpqa(row, response):
 
 
 def grade_ifbench(row, response):
+    # The production runtime keeps IFBench's dependency in /opt/ifbench so it
+    # cannot alter the pinned lm-eval environment. Use its registry as the
+    # source of truth when that isolated environment is present.
+    verifier = Path('/opt/ifbench/bin/python')
+    if verifier.exists() and row.get('instruction_id_list'):
+        script = '''import json, sys
+from ifbench import instructions_registry
+row, response = json.load(sys.stdin)
+checks = []
+for instruction_id, kwargs in zip(row["instruction_id_list"], row["kwargs"]):
+    cls = instructions_registry.INSTRUCTION_DICT[instruction_id]
+    instruction = cls(instruction_id)
+    instruction.build_description(**{k: v for k, v in kwargs.items() if v is not None})
+    args = instruction.get_instruction_args()
+    if args and "prompt" in args:
+        instruction.build_description(prompt=row["prompt"])
+    checks.append(bool(response.strip()) and instruction.check_following(response))
+print(json.dumps({"strict": all(checks), "instruction_results": checks}))
+'''
+        result = subprocess.run([str(verifier), '-c', script], input=json.dumps([row, response]),
+            text=True, capture_output=True, timeout=30, check=True)
+        value = json.loads(result.stdout)
+        strict = bool(value['strict'])
+        # The upstream loose evaluator tolerates boundary formatting and
+        # markdown asterisks; preserve that behavior for prompt-level loose.
+        candidates = {response, response.replace('*', '')}
+        loose = any(_run_ifbench_checks(row, candidate, verifier) for candidate in candidates)
+        return {'score': float(strict), 'strict': strict, 'loose': loose,
+                'invalid': not response.strip(), 'extraction': 'final answer after </think>',
+                'instruction_results': value['instruction_results'], 'verifier': 'ifbench 0.2.0 registry'}
     final = split_response(response)['final']
     checks = [bool(check(final)) for check in row.get('checks', [])]
     loose_checks = [bool(check(final)) for check in row.get('loose_checks', row.get('checks', []))]
@@ -53,8 +84,36 @@ def grade_ifbench(row, response):
             'invalid': not final, 'extraction': 'final answer after </think>'}
 
 
+def _run_ifbench_checks(row, response, verifier):
+    script = '''import json, sys
+from ifbench import instructions_registry
+row, response = json.load(sys.stdin)
+out = []
+for instruction_id, kwargs in zip(row["instruction_id_list"], row["kwargs"]):
+    instruction = instructions_registry.INSTRUCTION_DICT[instruction_id](instruction_id)
+    instruction.build_description(**{k: v for k, v in kwargs.items() if v is not None})
+    args = instruction.get_instruction_args()
+    if args and "prompt" in args: instruction.build_description(prompt=row["prompt"])
+    out.append(bool(response.strip()) and instruction.check_following(response))
+print(json.dumps(all(out)))
+'''
+    return json.loads(subprocess.run([str(verifier), '-c', script], input=json.dumps([row, response]),
+        text=True, capture_output=True, timeout=30, check=True).stdout)
+
+
 def grade_code(row, code, timeout=2):
     """Small CPU fixture grader; production uses the isolated LCB container."""
+    lcb_python = Path('/opt/livecodebench/bin/python')
+    if lcb_python.exists() and row.get('input_output'):
+        script = '''import json, sys
+from lcb_runner.evaluation.compute_code_generation_metrics import codegen_metrics
+row, code, timeout = json.load(sys.stdin)
+metrics = codegen_metrics([row], [[code]], k_list=[1], num_process_evaluate=1, timeout=timeout, debug=False)
+print(json.dumps({"score": float(metrics[0]["pass@1"]), "metadata": metrics[2]}))
+'''
+        result = subprocess.run([str(lcb_python), '-c', script], input=json.dumps([row, code, timeout]),
+            text=True, capture_output=True, timeout=timeout * 4 + 10, check=True)
+        return json.loads(result.stdout.splitlines()[-1]) | {'status': 'passed' if json.loads(result.stdout.splitlines()[-1])['score'] else 'failed', 'execution_failure': False, 'grader': 'LiveCodeBench codegen_metrics'}
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / 'submission.py'
         path.write_text(code)

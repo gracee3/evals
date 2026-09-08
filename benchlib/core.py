@@ -27,9 +27,9 @@ PINS = {
     'wis-k/instruction-following-eval': '5a5661c2a35488308556cf4453dc074d1eba91a0',
     'SaylorTwift/bbh': 'b5306be6f827cfafbb545ff5a51f96916029b0fd',
     'TIGER-Lab/MMLU-Pro': 'b189ec765aa7ed75c8acfea42df31fdae71f97be',
-    'allenai/IFBench': 'main',
+    'allenai/IFBench_test': '2e8a48de45ff3bf41242f927254ca81b59ca3ae2',
     'Idavidrein/gpqa': 'main',
-    'livecodebench/code_generation': 'main',
+    'livecodebench/code_generation_lite': '0fe84c3912ea0c4d4a78037083943e8f0c4dd505',
 }
 REFERENCES = {
     'ifbench': {'benchmark': 'IFBench', 'metric': 'strict prompt-level accuracy', 'score': 79.5},

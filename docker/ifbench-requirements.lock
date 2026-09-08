@@ -1,0 +1,3 @@
+# Isolated IFBench verifier environment; resolved transitive dependencies are
+# intentionally separate from the lm-eval/vLLM environment.
+ifbench==0.2.0
