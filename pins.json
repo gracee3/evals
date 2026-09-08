@@ -6,5 +6,8 @@
   "evalplus": "0.3.1",
   "evalplus_wheel_sha256": "cd601debb67419113d10ac5c3317689d847f27de5d8cf3837975f3cab571b75d",
   "humaneval_plus": "v0.1.10",
-  "runtime_image": "sha256:1fdc456dc95eefd909e1a7a3e9aedf3eb28ec1b9be3c56363eee4abb6d68b537"
+  "runtime_image": "sha256:1fdc456dc95eefd909e1a7a3e9aedf3eb28ec1b9be3c56363eee4abb6d68b537",
+  "ifbench_dataset": {"repo": "allenai/IFBench", "revision": "main", "status": "replace with immutable upstream commit before GPU acceptance"},
+  "gpqa_dataset": {"repo": "Idavidrein/gpqa", "split": "diamond", "revision": "main", "gated": true, "status": "replace with immutable upstream commit before GPU acceptance"},
+  "livecodebench_dataset": {"repo": "livecodebench/code_generation", "revision": "main", "release": "v6", "status": "date window and grader commit unresolved"}
 }

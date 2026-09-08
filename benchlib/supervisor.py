@@ -284,7 +284,8 @@ class Supervisor:
             for model in self.config['models']:
                 if model in self.exhausted_models:
                     continue
-                native = [s for s in self.config['benchmarks'] if s['name'] != 'humaneval_plus']
+                native = [s for s in self.config['benchmarks']
+                          if s['name'] not in ('humaneval_plus', 'ifbench', 'gpqa_diamond', 'livecodebench_v6')]
                 pending_native = [s for s in native
                                   if self.state['stages'].get(model + '/' + s['name'], {}).get('status') not in ('complete',)]
                 if pending_native:
@@ -346,7 +347,8 @@ class Supervisor:
                     self.save()
                     report(self.run)
                     self.current = None
-                for benchmark in [s for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
+                for benchmark in [s for s in self.config['benchmarks']
+                                  if s['name'] in ('humaneval_plus', 'ifbench', 'gpqa_diamond', 'livecodebench_v6')]:
                     name = benchmark['name']
                     self.current = model + '/' + name
                     state = self.state['stages'].setdefault(self.current, dict(status='pending', elapsed=0, retries=0, errors=[]))

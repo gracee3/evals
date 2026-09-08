@@ -1,0 +1,24 @@
+# Representative bounded comparison. Counts are total per benchmark and IDs
+# are frozen once prepared; both profiles receive the same selection.
+version: 1
+models: [int4-v1, int8-v2]
+runtime_profiles:
+  int4-v1: int4-v1-96k-fp8-tp1
+  int8-v2: int8-v2-262k-fp8-tp2
+seed: 42
+benchmarks:
+  - {name: ifbench, count: 25, minutes: 120, tokens: 4096}
+  - {name: gpqa_diamond, count: 25, minutes: 180, tokens: 16384}
+  - {name: livecodebench_v6, count: 25, minutes: 180, tokens: 16384}
+generation:
+  enable_thinking: true
+  reasoning_effort: medium
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  preserve_thinking: true
+  request_deadline_seconds: 300
+budgets:
+  active_hours: 24
+  queue_hours: 24
+  grade_seconds: 120

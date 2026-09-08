@@ -1,7 +1,8 @@
 # Local Agent Evals
 
 A small Python CLI for serial, resumable local smoke evaluations on two RTX 3090s.
-Version 1 supports IFEval, HumanEval+, BBH, and MMLU-Pro. It defaults to the local
+Version 1 supports IFEval, HumanEval+, BBH, MMLU-Pro, IFBench, GPQA Diamond, and
+LiveCodeBench v6. It defaults to the local
 INT8 Agentic v2 checkpoint; the comparison suite adds the original INT8 checkpoint.
 No weights are downloaded. Runs and reports are private and remain outside Git.
 
@@ -88,6 +89,14 @@ Activate `.venv`, use `.venv/bin/bench`, or put that directory on your PATH.
 There is no boot service, web server, external notification, or automatic result
 publication. `run` is the only overnight launch; preparation does not start GPU
 inference. `examples/acceptance.yaml` selects two examples per benchmark.
+
+The bounded generation comparison example is
+[`examples/qwen3.8-bounded-comparison.yaml`](examples/qwen3.8-bounded-comparison.yaml).
+`bench preflight` runs synthetic CPU checks only: it does not discover GPUs,
+load checkpoints, start vLLM, or report model scores. Published Qwen reference
+values are stored separately in [`references/qwen3.8-27b.json`](references/qwen3.8-27b.json);
+reports call local differences percentage-point differences from that reference,
+not quantization loss.
 
 ## Suite semantics
 

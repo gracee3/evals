@@ -113,6 +113,7 @@ def main():
     parser = argparse.ArgumentParser(prog='bench', description='Local serial smoke evaluations with private, resumable evidence.')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('list')
+    sub.add_parser('preflight', help='run CPU-only adapter and grader plumbing checks')
     for verb in ('plan', 'prepare', 'run'):
         command_parser = sub.add_parser(verb)
         command_parser.add_argument('suite')
@@ -124,6 +125,17 @@ def main():
     try:
         if args.command == 'list':
             print(json.dumps(dict(benchmarks=BENCHMARKS, models=PROFILES), indent=2))
+        elif args.command == 'preflight':
+            from benchlib.newbench import fixture_rows, grade_code, grade_gpqa, grade_ifbench, nested_sample
+            checks = {
+                'nested_sampling': nested_sample(fixture_rows('gpqa_diamond'), 1, 42)[0]['id'] == 'gpqa-1',
+                'ifbench_grading': grade_ifbench(fixture_rows('ifbench')[0], 'blue')['score'] == 1.0,
+                'gpqa_grading': grade_gpqa(fixture_rows('gpqa_diamond')[0], 'B')['score'] == 1.0,
+                'livecodebench_pass1': grade_code(fixture_rows('livecodebench_v6')[0], "import sys; print(sys.stdin.read().strip())")['score'] == 1.0,
+                'livecodebench_timeout': grade_code(fixture_rows('livecodebench_v6')[0], 'while True: pass', timeout=0.1)['status'] == 'timed_out',
+            }
+            print(json.dumps({'cpu_only': True, 'model_evaluation': False, 'checks': checks}, indent=2))
+            return 0 if all(checks.values()) else 1
         elif args.command in ('plan', 'prepare', 'run'):
             config = suite(args.suite)
             if args.scale_gpus:
