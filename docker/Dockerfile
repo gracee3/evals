@@ -26,12 +26,18 @@ RUN uv venv --python python --no-python-downloads /opt/ifbench && uv pip install
     -r /opt/ifbench-requirements.lock \
     && uv pip check --python /opt/ifbench/bin/python
 
-# LiveCodeBench's official checker is kept in a separate environment. It uses
-# the base image's torch/vLLM through system-site-packages and adds only the
-# pinned evaluator source; generated code still runs inside the supervisor's
-# no-network grading container.
-RUN uv venv --python python --system-site-packages /opt/livecodebench && uv pip install --python /opt/livecodebench/bin/python --no-cache --no-deps \
-    'git+https://github.com/LiveCodeBench/LiveCodeBench.git@28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24' \
-    && uv pip check --python /opt/livecodebench/bin/python
+# LiveCodeBench's official checker is kept in a separate environment. The
+# wrapper exposes the base image's torch/vLLM site explicitly at invocation and
+# adds only evaluator dependencies; generated code still runs inside the
+# supervisor's no-network grading container.
+COPY docker/livecodebench-requirements.lock /opt/livecodebench-requirements.lock
+RUN uv venv --python python --no-python-downloads /opt/livecodebench && uv pip install --python /opt/livecodebench/bin/python --no-cache \
+    -r /opt/livecodebench-requirements.lock \
+    && uv pip install --python /opt/livecodebench/bin/python --no-cache --no-deps \
+    'https://github.com/LiveCodeBench/LiveCodeBench/archive/28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24.tar.gz'
+# The upstream wheel's setuptools list omits evaluator subpackages; retain the
+# pinned source tree so lcb_runner.evaluation is available to the wrapper.
+ADD https://github.com/LiveCodeBench/LiveCodeBench/archive/28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24.tar.gz /tmp/livecodebench.tar.gz
+RUN mkdir -p /opt/livecodebench-src && tar -xzf /tmp/livecodebench.tar.gz --strip-components=1 -C /opt/livecodebench-src && rm -f /tmp/livecodebench.tar.gz
 WORKDIR /app
 ENTRYPOINT ["python"]

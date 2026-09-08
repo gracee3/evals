@@ -111,8 +111,10 @@ row, code, timeout = json.load(sys.stdin)
 metrics = codegen_metrics([row], [[code]], k_list=[1], num_process_evaluate=1, timeout=timeout, debug=False)
 print(json.dumps({"score": float(metrics[0]["pass@1"]), "metadata": metrics[2]}))
 '''
+        environment = dict(__import__('os').environ,
+            PYTHONPATH='/opt/livecodebench-src:/usr/local/lib/python3.12/dist-packages:' + __import__('os').environ.get('PYTHONPATH', ''))
         result = subprocess.run([str(lcb_python), '-c', script], input=json.dumps([row, code, timeout]),
-            text=True, capture_output=True, timeout=timeout * 4 + 10, check=True)
+            text=True, capture_output=True, timeout=timeout * 4 + 10, check=True, env=environment)
         return json.loads(result.stdout.splitlines()[-1]) | {'status': 'passed' if json.loads(result.stdout.splitlines()[-1])['score'] else 'failed', 'execution_failure': False, 'grader': 'LiveCodeBench codegen_metrics'}
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / 'submission.py'
