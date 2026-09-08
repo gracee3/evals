@@ -22,6 +22,8 @@ def split_response(text):
     match = re.search(r'<think>(.*?)</think>', text, re.I | re.S)
     if match:
         reasoning, final = match.group(1).strip(), text[match.end():].strip()
+    elif re.search(r'</think>', text, re.I):
+        reasoning, final = '', ''
     else:
         reasoning, final = '', text.strip()
     return {'reasoning': reasoning, 'final': final, 'has_final': bool(final)}

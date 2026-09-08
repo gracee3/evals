@@ -1,5 +1,14 @@
 # Validation — 2026-09-06
 
+Bootstrap the project environment and locked test dependency with:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e '.[test]'
+.venv/bin/python -m pytest -q
+```
+
 The final implementation passed 20 automated tests, including the opt-in Docker
 integration tests:
 

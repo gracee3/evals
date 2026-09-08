@@ -37,6 +37,7 @@ def test_new_benchmark_generation_configuration_and_large_limit(tmp_path):
     path = tmp_path / 'suite.yaml'
     path.write_text('''
 models: [int4-v1, int8-v2]
+runtime: {max_model_len: 65536}
 benchmarks:
   - {name: ifbench, count: 2, tokens: 20000}
   - {name: gpqa_diamond, count: 2, tokens: 30000}

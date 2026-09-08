@@ -33,11 +33,12 @@ the full teardown boundary between models.
 
 ## Setup
 
-Use a checkout under `/home/emmy/workspace` and a project-local environment:
+Use a checkout under `/home/emmy/projects` and a project-local environment:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e '.[test]'
 .venv/bin/bench list
 .venv/bin/bench plan examples/smoke.yaml
 .venv/bin/bench prepare examples/smoke.yaml
@@ -225,8 +226,7 @@ raw outputs/code, response caches, `report.md`, and `report.json`.
 ## Development and provenance
 
 ```sh
-.venv/bin/pip install pytest==8.4.2
-.venv/bin/pytest -q
+.venv/bin/python -m pytest -q
 BENCH_DOCKER_TESTS=1 .venv/bin/pytest -q tests/test_watchdog.py
 ```
 
