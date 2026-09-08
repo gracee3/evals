@@ -142,6 +142,13 @@ def prepare(config):
             args += mount(PROFILES[m], '/models/' + m, True)
         args += ['--env', 'HF_HOME=/work/cache', '--env', 'XDG_CACHE_HOME=/work/cache',
                  '--entrypoint', 'python', actual, '-m', 'benchlib.worker', 'prepare']
+        # Pass an already-exported Hugging Face token by name only; never put
+        # the secret in argv, logs, or frozen metadata. This is needed for the
+        # authorized GPQA gated-data download during preparation.
+        if os.environ.get('HF_TOKEN'):
+            args[args.index('--entrypoint'):args.index('--entrypoint')] = ['--env', 'HF_TOKEN']
+        elif os.environ.get('HF_HUB_TOKEN'):
+            args[args.index('--entrypoint'):args.index('--entrypoint')] = ['--env', 'HF_HUB_TOKEN']
         try:
             with open(path / 'prepare.log', 'a') as log:
                 subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=3600)
