@@ -50,6 +50,11 @@ def prepare():
             for task_id in problems:
                 pools['all'].append({'task': task_id, 'index': int(task_id.split('/')[1])})
             write_json('/work/humaneval.json', problems)
+        elif name in ('ifbench', 'gpqa_diamond', 'livecodebench_v6'):
+            rows = load_generation_dataset(name, stage['count'], config['seed'])
+            write_json('/work/' + name + '.json', rows)
+            dataset_hashes[name] = file_hash('/work/' + name + '.json')
+            pools['all'] = [{'id': row['id'], 'index': i} for i, row in enumerate(rows)]
         else:
             tasks = tm.load([BENCHMARKS[name]['task']])['tasks']
             for task_name, task in sorted(tasks.items()):
@@ -71,6 +76,89 @@ def prepare():
         evalplus_software=read_json('/work/evalplus-software.json') if Path('/work/evalplus-software.json').exists() else {}))
 
 
+def load_generation_dataset(name, count=None, seed=0):
+    """Load and normalize pinned upstream data; GPQA remains gated by design."""
+    import datasets
+    sources = {
+        'ifbench': ('allenai/IFBench_test', 'train'),
+        'gpqa_diamond': ('Idavidrein/gpqa', 'train'),
+        'livecodebench_v6': ('livecodebench/code_generation_lite', 'test'),
+    }
+    source, split = sources[name]
+    if name == 'livecodebench_v6':
+        # datasets 5.x no longer executes Hub dataset scripts. Keep the
+        # compatibility loader isolated from the pinned lm-eval environment.
+        target = '/work/livecodebench_v6.json'
+        script = r'''
+import json, sys, random
+import lcb_runner.benchmarks.code_generation as cg
+from lcb_runner.benchmarks.code_generation import load_code_generation_dataset
+original = cg.load_dataset
+def pinned(*args, **kwargs):
+    kwargs['revision'] = sys.argv[2]
+    return original(*args, **kwargs)
+cg.load_dataset = pinned
+def enum(v): return getattr(v, 'value', v)
+def cases(values):
+    return [{'input': t.input, 'output': t.output, 'testtype': enum(t.testtype)} for t in (values or [])]
+all_problems = load_code_generation_dataset(release_version='release_v6')
+ids = sorted(str(p.question_id) for p in all_problems)
+rng = random.Random(int(sys.argv[3]))
+rng.shuffle(ids)
+keep = set(ids[:int(sys.argv[4])]) if int(sys.argv[4]) < len(ids) else set(ids)
+rows = []
+for p in all_problems:
+    if str(p.question_id) not in keep:
+        continue
+    public, private = cases(p.public_test_cases), cases(p.private_test_cases)
+    rows.append({'id': str(p.question_id), 'question_id': str(p.question_id),
+        'question_title': p.question_title, 'question_content': p.question_content,
+        'prompt': p.question_content, 'platform': enum(p.platform),
+        'contest_id': p.contest_id, 'contest_date': p.contest_date.isoformat(),
+        'starter_code': p.starter_code, 'difficulty': enum(p.difficulty),
+        'public_test_cases': public, 'private_test_cases': private,
+        'input_output': {'inputs': [x['input'] for x in public + private],
+                         'outputs': [x['output'] for x in public + private]}})
+with open(sys.argv[1], 'w') as f: json.dump(rows, f)
+'''
+        subprocess.run(['/opt/livecodebench/bin/python', '-c', script, target, PINS[source], str(seed), str(count or 10**9)],
+            check=True, env=dict(os.environ, HF_HOME='/work/cache',
+            # Do not expose the base image site-packages: this subprocess must
+            # resolve datasets 3.2 from its isolated environment.
+            PYTHONPATH='/opt/livecodebench-src'))
+        rows = read_json(target)
+        if not rows:
+            raise RuntimeError(name + ' dataset selection is empty')
+        return rows
+    load_kwargs = {'split': split, 'revision': PINS[source]}
+    if name == 'gpqa_diamond':
+        load_kwargs['name'] = 'gpqa_diamond'
+    if name == 'livecodebench_v6':
+        load_kwargs['version_tag'] = 'release_v6'
+    ds = datasets.load_dataset(source, **load_kwargs)
+    rows = []
+    for i, raw in enumerate(ds):
+        # The explicit gpqa_diamond config is already the gated selection;
+        # row-level Subset fields vary across dataset revisions.
+        row = dict(raw)
+        row['id'] = str(row.get('question_id', row.get('id', i)))
+        if name == 'gpqa_diamond':
+            correct = raw.get('Correct Answer')
+            options = [correct, raw.get('Incorrect Answer 1'), raw.get('Incorrect Answer 2'),
+                       raw.get('Incorrect Answer 3')]
+            if not all(isinstance(x, str) and x for x in options):
+                continue
+            import random
+            random.Random(int(digest(str(raw.get('Record ID', i)))[:16], 16)).shuffle(options)
+            row = {'id': str(raw.get('Record ID', i)), 'question': raw['Question'],
+                   'options': options, 'answer': chr(65 + options.index(correct)),
+                   'domain': raw.get('High-level domain')}
+        rows.append(row)
+    if not rows:
+        raise RuntimeError(name + ' dataset selection is empty')
+    return rows
+
+
 def runtime_args(config, model=None):
     excluded = {'concurrency', 'batch_size', 'speculative_decoding', 'gpu_device'}
     runtime = config.get('runtimes', {}).get(model, config['runtime']) if model else config['runtime']
@@ -83,6 +171,8 @@ def record_path(stage, item, kind='result'):
 
 
 def harness(stage_path, benchmark, model=None, lm=None):
+    if benchmark in ('ifbench', 'gpqa_diamond', 'livecodebench_v6'):
+        return generation_harness(stage_path, benchmark, model, lm)
     from lm_eval import simple_evaluate
     from lm_eval.models.vllm_causallms import VLLM
     config = read_json('/work/frozen.json')['suite']
@@ -136,7 +226,7 @@ def harness(stage_path, benchmark, model=None, lm=None):
         result = simple_evaluate(model=lm, tasks=list(samples), samples=dict(samples),
             batch_size=1, use_cache=str(Path(stage_path) / 'responses'),
             apply_chat_template=True, fewshot_as_multiturn=True, log_samples=True,
-            gen_kwargs={'max_gen_toks': stage_config['tokens']} if benchmark == 'ifeval' else None,
+            gen_kwargs=({'max_gen_toks': stage_config['tokens']} | generation_kwargs(config)) if benchmark == 'ifeval' else None,
             random_seed=config['seed'], numpy_random_seed=config['seed'],
             torch_random_seed=config['seed'], fewshot_random_seed=config['seed'], bootstrap_iters=0)
         write_json(Path(stage_path) / 'raw' / (digest(batch) + '.json'), result)
@@ -158,6 +248,71 @@ def harness(stage_path, benchmark, model=None, lm=None):
             raise RuntimeError('harness omitted selected results')
     if owned_lm:
         lm.cache_hook.dbdict.close()
+
+
+def generation_harness(stage_path, benchmark, model=None, lm=None):
+    """Generation path for the three bounded comparison suites."""
+    from lm_eval.api.instance import Instance
+    from benchlib.newbench import grade_gpqa, grade_ifbench, parse_choice, split_response
+    frozen = read_json('/work/frozen.json')
+    config = frozen['suite']
+    rows = read_json('/prepared/' + benchmark + '.json')
+    by_id = {r['id']: r for r in rows}
+    selected = frozen['prepared']['selection'][benchmark]
+    record_kind = 'generation' if benchmark == 'livecodebench_v6' else 'result'
+    pending = [i for i in selected if not record_path(stage_path, i, record_kind).exists()]
+    if not pending:
+        return
+    owned_lm = lm is None
+    if owned_lm:
+        from lm_eval.models.vllm_causallms import VLLM
+        lm = VLLM(**runtime_args(config, model))
+    generation = config.get('generation', {})
+    stage = next(s for s in config['benchmarks'] if s['name'] == benchmark)
+    kwargs = {'max_gen_toks': stage['tokens']} | generation_kwargs(config)
+    for key in ('temperature', 'top_p', 'top_k', 'min_p', 'presence_penalty', 'repetition_penalty'):
+        if key in generation:
+            kwargs[key] = generation[key]
+    for item in pending:
+        row = by_id[item['id']]
+        if benchmark == 'gpqa_diamond':
+            prompt = row.get('question', '') + '\n\nOptions:\n' + '\n'.join(f'{chr(65+j)}. {x}' for j, x in enumerate(row['options'])) + '\n\nReturn the final option letter.'
+        else:
+            prompt = row.get('prompt', row.get('question', row.get('title', '')))
+        request = Instance('generate_until', row, (prompt, kwargs), item['index'])
+        response = lm.generate_until([request])[0]
+        parts = split_response(response)
+        if benchmark == 'gpqa_diamond':
+            graded = grade_gpqa(row, response)
+        elif benchmark == 'ifbench':
+            # Authentic IFBench verifier functions are serialized as upstream
+            # metadata and run by the dedicated verifier when available.
+            graded = {'score': None, 'invalid': not parts['has_final'], 'strict': None, 'loose': None,
+                      'extraction': 'final answer after </think>', 'verifier': 'upstream IFBench verifier pending'}
+        else:
+            # Code execution is deferred to the CPU-only grading container.
+            graded = {'invalid': not parts['has_final'],
+                      'extraction': 'final answer after </think>; LiveCodeBench CPU grader',
+                      'grader': 'pending isolated LiveCodeBench codegen_metrics'}
+        value = dict(item=item, reasoning=parts['reasoning'], final=parts['final'], raw=response,
+                     truncated=False, execution_failure=False, **graded)
+        if benchmark != 'livecodebench_v6':
+            value['score'] = graded.pop('score')
+        write_json(record_path(stage_path, item, record_kind), value)
+    if owned_lm:
+        lm.cache_hook.dbdict.close()
+
+
+def generation_kwargs(config):
+    generation = config.get('generation', {})
+    result = {}
+    if 'enable_thinking' in generation:
+        result['chat_template_kwargs'] = {'enable_thinking': generation['enable_thinking']}
+        if 'preserve_thinking' in generation:
+            result['chat_template_kwargs']['preserve_thinking'] = generation['preserve_thinking']
+    if 'reasoning_effort' in generation:
+        result['reasoning_effort'] = generation['reasoning_effort']
+    return result
 
 
 def harness_group(stage_root, benchmarks, model=None):
@@ -200,7 +355,8 @@ def humaneval_generate(stage_path, model=None):
         '--max-num-batched-tokens', str(r['max_num_batched_tokens']),
         '--max-num-seqs', '1', '--kv-cache-memory-bytes', str(r['kv_cache_memory_bytes']),
         '--seed', str(config['seed']), '--generation-config', 'vllm',
-        '--default-chat-template-kwargs', '{"enable_thinking":false}']
+        '--default-chat-template-kwargs', __import__('json').dumps({'enable_thinking': config.get('generation', {}).get('enable_thinking', False),
+            'preserve_thinking': config.get('generation', {}).get('preserve_thinking', True)})]
     if r['enforce_eager']:
         command.insert(command.index('--language-model-only'), '--enforce-eager')
     command.insert(command.index('--language-model-only'),
@@ -265,10 +421,22 @@ def grade():
         truncated=value['generation']['truncated']))
 
 
+def grade_lcb():
+    from benchlib.newbench import grade_code, split_response
+    value = read_json('/input/example.json')
+    generation = value['generation']
+    code = split_response(generation.get('raw', generation.get('final', '')))['final']
+    if '```' in code:
+        code = code.split('```', 2)[1].removeprefix('python\n')
+    result = grade_code(value['problem'], code, timeout=value.get('timeout', 5))
+    write_json('/output/result.json', dict(item=generation['item'], **result,
+        truncated=generation.get('truncated', False)))
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['prepare', 'harness', 'harness-group', 'generate', 'grade', 'export_he'])
+    parser.add_argument('action', choices=['prepare', 'harness', 'harness-group', 'generate', 'grade', 'grade_lcb', 'export_he'])
     parser.add_argument('--stage')
     parser.add_argument('--benchmark')
     parser.add_argument('--benchmarks')
@@ -288,6 +456,8 @@ def main():
         harness_group(args.stage, args.benchmarks.split(','), args.model)
     elif args.action == 'generate':
         humaneval_generate(args.stage, args.model)
+    elif args.action == 'grade_lcb':
+        grade_lcb()
     else:
         grade()
 

@@ -1,0 +1,15 @@
+{
+  "source_url": "https://huggingface.co/Qwen/Qwen3.8-27B",
+  "retrieval_date": "2026-09-08",
+  "model_id": "Qwen/Qwen3.8-27B",
+  "references": [
+    {"benchmark": "IFBench", "version": "published model-card result", "metric": "strict prompt-level accuracy", "score": 79.5},
+    {"benchmark": "GPQA Diamond", "version": "published model-card result", "metric": "final-choice accuracy", "score": 89.2},
+    {"benchmark": "LiveCodeBench", "version": "v6", "metric": "pass@1", "score": 90.3}
+  ],
+  "known_harness_settings": "Thinking is on by default; reasoning_effort is low, medium, or xhigh; recommended thinking sampling is temperature 1.0, top_p 0.95, top_k 20.",
+  "unresolved_protocol_details": [
+    "The model card does not identify the exact LiveCodeBench v6 date-window problem selection, grader commit, or sampling harness.",
+    "The model card does not establish that every published benchmark used verified BF16 inference."
+  ]
+}

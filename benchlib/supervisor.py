@@ -102,6 +102,8 @@ class Supervisor:
             available, swap = memory()
             if self.guard.check(available, swap):
                 raise Halt('resource guard: available RAM below 8 GiB or swap growth above 32 GiB for ten seconds')
+            if self.config['budgets'].get('run_to_completion', False):
+                return
             if self.state['active_seconds'] >= self.config['budgets']['active_hours'] * 3600:
                 raise Halt('overall active budget exhausted')
             if self.current:
@@ -154,6 +156,9 @@ class Supervisor:
         self.save()
 
     def execute(self, args, log, *, grade_limit=None):
+        if '--gpus' in args and 'gpu_groups' in self.frozen:
+            from benchlib.distribution import execute
+            return execute(self, args, log)
         start = time.monotonic()
         with open(log, 'a') as output:
             process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT)
@@ -266,6 +271,36 @@ class Supervisor:
                 raise RuntimeFailure('invalid grading result')
             write_json(destination, value)
 
+    def grade_lcb(self, stage):
+        problems = {r['id']: r for r in read_json(prepared_path(self.config) / 'livecodebench_v6.json')}
+        for item in self.frozen['prepared']['selection']['livecodebench_v6']:
+            destination = record_path(stage, item)
+            if destination.exists():
+                continue
+            generation = read_json(record_path(stage, item, 'generation'))
+            job = stage / 'grading' / destination.stem
+            (job / 'input').mkdir(parents=True, exist_ok=True, mode=0o700)
+            (job / 'output').mkdir(exist_ok=True, mode=0o700)
+            write_json(job / 'input/example.json', dict(problem=problems[item['id']], generation=generation,
+                                                       timeout=self.config['budgets']['grade_seconds']))
+            name = 'bench-grade-' + uuid.uuid4().hex
+            args = container_args(name, self.owner, self.frozen['prepared']['image'], code=self.run / 'code')
+            args += mount(job / 'input', '/input', True) + mount(job / 'output', '/output')
+            args += ['--entrypoint', 'python', self.frozen['prepared']['image'], '-m', 'benchlib.worker', 'grade_lcb']
+            try:
+                rc = self.execute(args, job / 'grade.log', grade_limit=self.config['budgets']['grade_seconds'])
+            except Deadline as e:
+                write_json(destination, dict(item=item, score=0.0, timed_out=True,
+                    execution_failure=False, execution_error=str(e), truncated=generation['truncated']))
+                continue
+            result = job / 'output/result.json'
+            if rc or not result.exists():
+                raise RuntimeFailure(f'LiveCodeBench grading infrastructure exit {rc}; see {job / "grade.log"}')
+            value = read_json(result)
+            if value.get('item') != item or value.get('score') not in (0, 1, 0.0, 1.0):
+                raise RuntimeFailure('invalid LiveCodeBench grading result')
+            write_json(destination, value)
+
     def verify_models(self):
         for model in self.config['models']:
             if model_identity(PROFILES[model]) != self.frozen['prepared']['host_models'][model]:
@@ -279,7 +314,8 @@ class Supervisor:
             for model in self.config['models']:
                 if model in self.exhausted_models:
                     continue
-                native = [s for s in self.config['benchmarks'] if s['name'] != 'humaneval_plus']
+                native = [s for s in self.config['benchmarks']
+                          if s['name'] not in ('humaneval_plus', 'ifbench', 'gpqa_diamond', 'livecodebench_v6')]
                 pending_native = [s for s in native
                                   if self.state['stages'].get(model + '/' + s['name'], {}).get('status') not in ('complete',)]
                 if pending_native:
@@ -341,7 +377,8 @@ class Supervisor:
                     self.save()
                     report(self.run)
                     self.current = None
-                for benchmark in [s['name'] for s in self.config['benchmarks'] if s['name'] == 'humaneval_plus']:
+                for benchmark in [s for s in self.config['benchmarks']
+                                  if s['name'] in ('humaneval_plus', 'ifbench', 'gpqa_diamond', 'livecodebench_v6')]:
                     name = benchmark['name']
                     self.current = model + '/' + name
                     state = self.state['stages'].setdefault(self.current, dict(status='pending', elapsed=0, retries=0, errors=[]))
@@ -355,13 +392,15 @@ class Supervisor:
                         try:
                             self.tick()
                             selected = self.frozen['prepared']['selection'][name]
-                            kind = 'generation' if name == 'humaneval_plus' else 'result'
+                            kind = 'generation' if name in ('humaneval_plus', 'livecodebench_v6') else 'result'
                             if any(not record_path(stage, i, kind).exists() for i in selected):
                                 if not gpu_idle():
                                     raise Halt('GPU availability changed under shared lock')
                                 self.gpu_stage(model, name, stage)
                             if name == 'humaneval_plus':
                                 self.grade(stage)
+                            elif name == 'livecodebench_v6':
+                                self.grade_lcb(stage)
                             self.verify_models()
                             state['completed'] = len(list((stage / 'result').glob('*.json')))
                             state['generated'] = len(list((stage / 'generation').glob('*.json')))

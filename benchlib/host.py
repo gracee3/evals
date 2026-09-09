@@ -69,7 +69,7 @@ def gpu_idle():
     apps = command(['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader,nounits'])
     memory = command(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'])
     used = [int(v.strip()) for v in memory.splitlines()]
-    return not apps and len(used) == 2 and max(used) < 512
+    return not apps and bool(used) and max(used) < 512
 
 
 def memory():
@@ -134,7 +134,7 @@ def prepare(config):
         owner = 'prepare-' + uuid.uuid4().hex
         args = container_args(owner, owner, actual)
         # Preparation needs network for pinned public datasets, more RAM for imports, and model read access.
-        for key, val in [('--network', 'bridge'), ('--memory', '16g'), ('--memory-swap', '16g'), ('--user', '0:0')]:
+        for key, val in [('--network', 'bridge'), ('--memory', '32g'), ('--memory-swap', '32g'), ('--user', '0:0')]:
             args[args.index(key) + 1] = val
         args += ['--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE']
         args += mount(path, '/work')
@@ -142,6 +142,13 @@ def prepare(config):
             args += mount(PROFILES[m], '/models/' + m, True)
         args += ['--env', 'HF_HOME=/work/cache', '--env', 'XDG_CACHE_HOME=/work/cache',
                  '--entrypoint', 'python', actual, '-m', 'benchlib.worker', 'prepare']
+        # Pass an already-exported Hugging Face token by name only; never put
+        # the secret in argv, logs, or frozen metadata. This is needed for the
+        # authorized GPQA gated-data download during preparation.
+        if os.environ.get('HF_TOKEN'):
+            args[args.index('--entrypoint'):args.index('--entrypoint')] = ['--env', 'HF_TOKEN']
+        elif os.environ.get('HF_HUB_TOKEN'):
+            args[args.index('--entrypoint'):args.index('--entrypoint')] = ['--env', 'HF_HUB_TOKEN']
         try:
             with open(path / 'prepare.log', 'a') as log:
                 subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=3600)

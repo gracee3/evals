@@ -19,12 +19,25 @@ BENCHMARKS = {
     'humaneval_plus': {'count': 164, 'maximum': 164, 'minutes': 150, 'tokens': 2048, 'task': None, 'metric': 'pass@1'},
     'bbh': {'count': 60, 'maximum': 5761, 'minutes': 90, 'tokens': None, 'task': 'leaderboard_bbh', 'metric': 'acc_norm'},
     'mmlu_pro': {'count': 60, 'maximum': 12032, 'minutes': 90, 'tokens': None, 'task': 'leaderboard_mmlu_pro', 'metric': 'acc'},
+    'ifbench': {'count': 25, 'maximum': 541, 'minutes': 120, 'tokens': 4096, 'task': None, 'metric': 'strict_prompt_accuracy'},
+    'gpqa_diamond': {'count': 25, 'maximum': 198, 'minutes': 180, 'tokens': 16384, 'task': None, 'metric': 'final_choice_accuracy'},
+    'livecodebench_v6': {'count': 25, 'maximum': 1000, 'minutes': 180, 'tokens': 16384, 'task': None, 'metric': 'pass@1'},
 }
 PINS = {
     'wis-k/instruction-following-eval': '5a5661c2a35488308556cf4453dc074d1eba91a0',
     'SaylorTwift/bbh': 'b5306be6f827cfafbb545ff5a51f96916029b0fd',
     'TIGER-Lab/MMLU-Pro': 'b189ec765aa7ed75c8acfea42df31fdae71f97be',
+    'allenai/IFBench_test': '2e8a48de45ff3bf41242f927254ca81b59ca3ae2',
+    'Idavidrein/gpqa': 'main',
+    'livecodebench/code_generation_lite': '0fe84c3912ea0c4d4a78037083943e8f0c4dd505',
 }
+REFERENCES = {
+    'ifbench': {'benchmark': 'IFBench', 'metric': 'strict prompt-level accuracy', 'score': 79.5},
+    'gpqa_diamond': {'benchmark': 'GPQA Diamond', 'metric': 'final-choice accuracy', 'score': 89.2},
+    'livecodebench_v6': {'benchmark': 'LiveCodeBench', 'metric': 'pass@1', 'score': 90.3},
+}
+REFERENCE_SOURCE = 'https://huggingface.co/Qwen/Qwen3.8-27B'
+DEFAULT_BENCHMARKS = ('ifeval', 'humaneval_plus', 'bbh', 'mmlu_pro')
 RUNTIME = dict(tensor_parallel_size=2, max_model_len=16384, dtype='bfloat16',
     kv_cache_dtype='bfloat16', enable_thinking=False, speculative_decoding=False,
     concurrency=1, batch_size=4, enforce_eager=True, enable_prefix_caching=False,
@@ -121,7 +134,7 @@ def suite(path):
     raw = yaml.safe_load(Path(path).read_text())
     if not isinstance(raw, dict):
         raise ValueError('suite must be a YAML mapping')
-    unknown = set(raw) - {'version', 'models', 'benchmarks', 'seed', 'runtime', 'runtime_profiles', 'budgets'}
+    unknown = set(raw) - {'version', 'models', 'benchmarks', 'seed', 'runtime', 'runtime_profiles', 'generation', 'budgets', 'distribution'}
     if unknown:
         raise ValueError(f'unknown suite keys: {sorted(unknown)}')
     if raw.get('version', 1) != 1:
@@ -132,7 +145,7 @@ def suite(path):
     seed = raw.get('seed', 42)
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError('seed must be an unsigned 32-bit integer')
-    stages = raw.get('benchmarks', [{'name': k} for k in BENCHMARKS])
+    stages = raw.get('benchmarks', [{'name': k} for k in DEFAULT_BENCHMARKS])
     if not isinstance(stages, list) or not stages:
         raise ValueError('benchmarks must be a nonempty ordered list')
     selected = []
@@ -147,13 +160,26 @@ def suite(path):
         if defaults['tokens'] is None and row['tokens'] is not None:
             raise ValueError(f'{name} uses native likelihood scoring, not output tokens')
         if row['tokens'] is not None:
-            positive(row['tokens'], 'tokens', 8192)
+            positive(row['tokens'], 'tokens', 65536)
         selected.append(row)
     if len({s['name'] for s in selected}) != len(selected):
         raise ValueError('duplicate benchmark stages are not supported')
     runtime = raw.get('runtime', {})
     if not isinstance(runtime, dict) or set(runtime) - {'max_model_len', 'batch_size', 'kv_cache_memory_bytes'}:
         raise ValueError('runtime supports max_model_len, batch_size, kv_cache_memory_bytes; other v1 settings are fixed')
+    generation = raw.get('generation', {})
+    allowed_generation = {'enable_thinking', 'reasoning_effort', 'temperature', 'top_p', 'top_k', 'min_p', 'presence_penalty', 'repetition_penalty', 'preserve_thinking', 'request_deadline_seconds'}
+    if not isinstance(generation, dict) or set(generation) - allowed_generation:
+        raise ValueError('invalid generation settings')
+    if 'enable_thinking' in generation and type(generation['enable_thinking']) is not bool:
+        raise ValueError('enable_thinking must be boolean')
+    if generation.get('reasoning_effort') not in (None, 'low', 'medium', 'xhigh'):
+        raise ValueError('reasoning_effort must be low, medium, or xhigh')
+    if 'request_deadline_seconds' in generation:
+        positive(generation['request_deadline_seconds'], 'request_deadline_seconds', 3600)
+    for key in ('temperature', 'top_p', 'top_k', 'min_p', 'presence_penalty', 'repetition_penalty'):
+        if key in generation and not isinstance(generation[key], (int, float)):
+            raise ValueError(f'{key} must be numeric')
     requested_profiles = raw.get('runtime_profiles', {})
     if not isinstance(requested_profiles, dict) or set(requested_profiles) - set(models):
         raise ValueError('runtime_profiles must map selected model names to named profiles')
@@ -176,8 +202,10 @@ def suite(path):
             raise ValueError(f'output limits must be smaller than context length for {model}')
         runtimes[model] = resolved
     budgets = raw.get('budgets', {})
-    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours'}:
+    if not isinstance(budgets, dict) or set(budgets) - {'active_hours', 'queue_hours', 'grade_seconds', 'model_active_hours', 'run_to_completion'}:
         raise ValueError('unknown budgets key')
+    if 'run_to_completion' in budgets and type(budgets['run_to_completion']) is not bool:
+        raise ValueError('run_to_completion must be a boolean')
     budgets = dict(active_hours=24, queue_hours=24, grade_seconds=120) | budgets
     positive(budgets['active_hours'], 'active_hours', 48)
     positive(budgets['queue_hours'], 'queue_hours', 24)
@@ -189,9 +217,20 @@ def suite(path):
     for model, hours in budgets['model_active_hours'].items():
         positive(hours, f'model_active_hours[{model}]', 48)
     # Retain runtime for older callers; new workers use runtimes[model].
-    return dict(version=1, models=models, benchmarks=selected, seed=seed,
+    result = dict(version=1, models=models, benchmarks=selected, seed=seed, generation=generation,
                 runtime=runtimes[models[0]], runtimes=runtimes,
                 runtime_profiles=requested_profiles, budgets=budgets)
+    if 'distribution' in raw:
+        distribution = raw['distribution']
+        if not isinstance(distribution, dict) or set(distribution) != {'gpus'}:
+            raise ValueError('distribution requires gpus: auto or a list of GPU UUIDs')
+        devices = distribution['gpus']
+        if devices != 'auto' and (not isinstance(devices, list) or not devices
+                or any(not isinstance(d, str) or not d.startswith('GPU-') or ',' in d for d in devices)
+                or len(set(devices)) != len(devices)):
+            raise ValueError('distribution.gpus must be auto or distinct GPU UUIDs')
+        result['distribution'] = distribution
+    return result
 
 
 def sample(categories, count, seed):

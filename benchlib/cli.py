@@ -76,11 +76,15 @@ def launch(path, resume=False):
 
 def new_run(config):
     prep = verify_prepared(config)
+    from benchlib.distribution import allocate
+    allocation = allocate(config) if 'distribution' in config else None
     run_id = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + uuid.uuid4().hex[:12]
     path = ROOT / 'runs' / run_id
     path.mkdir(parents=True, mode=0o700)
     frozen = dict(suite=config, prepared=prep, owner=uuid.uuid4().hex,
                   created_at=time.time(), git_commit=command(['git', '-C', PROJECT, 'rev-parse', 'HEAD']))
+    if allocation is not None:
+        frozen['gpu_groups'] = allocation
     frozen['identity'] = digest(frozen)
     write_json(path / 'frozen.json', frozen)
     (path / 'code').mkdir(mode=0o700)
@@ -109,21 +113,43 @@ def main():
     parser = argparse.ArgumentParser(prog='bench', description='Local serial smoke evaluations with private, resumable evidence.')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('list')
+    sub.add_parser('preflight', help='run CPU-only adapter and grader plumbing checks')
     for verb in ('plan', 'prepare', 'run'):
-        sub.add_parser(verb).add_argument('suite')
+        command_parser = sub.add_parser(verb)
+        command_parser.add_argument('suite')
+        command_parser.add_argument('--scale-gpus', nargs='+', metavar='GPU',
+                                    help='auto or GPU UUIDs to distribute examples across TP-sized groups')
     for verb in ('status', 'stop', 'resume', 'report'):
         sub.add_parser(verb).add_argument('run_id')
     args = parser.parse_args()
     try:
         if args.command == 'list':
             print(json.dumps(dict(benchmarks=BENCHMARKS, models=PROFILES), indent=2))
+        elif args.command == 'preflight':
+            from benchlib.newbench import fixture_rows, grade_code, grade_gpqa, grade_ifbench, nested_sample
+            checks = {
+                'nested_sampling': nested_sample(fixture_rows('gpqa_diamond'), 1, 42)[0]['id'] == 'gpqa-1',
+                'ifbench_grading': grade_ifbench(fixture_rows('ifbench')[0], 'blue')['score'] == 1.0,
+                'gpqa_grading': grade_gpqa(fixture_rows('gpqa_diamond')[0], 'B')['score'] == 1.0,
+                'livecodebench_pass1': grade_code(fixture_rows('livecodebench_v6')[0], "import sys; print(sys.stdin.read().strip())")['score'] == 1.0,
+                'livecodebench_timeout': grade_code(fixture_rows('livecodebench_v6')[0], 'while True: pass', timeout=0.1)['status'] == 'timed_out',
+            }
+            print(json.dumps({'cpu_only': True, 'model_evaluation': False, 'checks': checks}, indent=2))
+            return 0 if all(checks.values()) else 1
         elif args.command in ('plan', 'prepare', 'run'):
             config = suite(args.suite)
+            if args.scale_gpus:
+                devices = args.scale_gpus
+                if devices != ['auto'] and (len(set(devices)) != len(devices)
+                        or any(not d.startswith('GPU-') or ',' in d for d in devices)):
+                    raise ValueError('--scale-gpus requires auto or distinct GPU UUIDs')
+                config['distribution'] = {'gpus': 'auto' if devices == ['auto'] else devices}
             if args.command == 'plan':
                 print(json.dumps(dict(suite=config,
                     planned_examples=len(config['models']) * sum(s['count'] for s in config['benchmarks']),
                     maximum_stage_hours=len(config['models']) * sum(s['seconds'] for s in config['benchmarks']) / 3600,
-                    estimate='Deadline ceiling, not a throughput prediction. Preparation and queue time are separate.',
+                    estimate=('Run to completion: active and stage deadlines disabled.' if config['budgets'].get('run_to_completion') else
+                              'Deadline ceiling, not a throughput prediction. Preparation and queue time are separate.'),
                     preparation=str(prepared_path(config))), indent=2))
             elif args.command == 'prepare':
                 print(prepare(config))

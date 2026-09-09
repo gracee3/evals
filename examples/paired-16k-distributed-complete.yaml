@@ -1,0 +1,20 @@
+# Two TP1 replicas for INT4; then one TP2 replica for INT8 on this two-GPU host.
+version: 1
+models: [int4-v1, int8-v2]
+runtime_profiles:
+  int4-v1: int4-v1-16k-fp8-tp1
+  int8-v2: int8-v2-16k-bf16-tp2
+distribution:
+  gpus:
+    - GPU-613c7d78-a76d-306b-05da-1db1f15a5032
+    - GPU-2b2f26e4-eb5d-dd9d-1dbd-2857fd357225
+seed: 42
+benchmarks:
+  - {name: ifeval, count: 256, minutes: 360, tokens: 1024}
+  - {name: humaneval_plus, count: 164, minutes: 360, tokens: 2048}
+  - {name: bbh, count: 400, minutes: 360}
+  - {name: mmlu_pro, count: 400, minutes: 360}
+budgets:
+  run_to_completion: true
+  queue_hours: 1
+  grade_seconds: 120

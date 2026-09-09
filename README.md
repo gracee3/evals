@@ -1,7 +1,8 @@
 # Local Agent Evals
 
 A small Python CLI for serial, resumable local smoke evaluations on two RTX 3090s.
-Version 1 supports IFEval, HumanEval+, BBH, and MMLU-Pro. It defaults to the local
+Version 1 supports IFEval, HumanEval+, BBH, MMLU-Pro, IFBench, GPQA Diamond, and
+LiveCodeBench v6. It defaults to the local
 INT8 Agentic v2 checkpoint; the comparison suite adds the original INT8 checkpoint.
 No weights are downloaded. Runs and reports are private and remain outside Git.
 
@@ -32,11 +33,12 @@ the full teardown boundary between models.
 
 ## Setup
 
-Use a checkout under `/home/emmy/workspace` and a project-local environment:
+Use a checkout under `/home/emmy/projects` and a project-local environment:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e '.[test]'
 .venv/bin/bench list
 .venv/bin/bench plan examples/smoke.yaml
 .venv/bin/bench prepare examples/smoke.yaml
@@ -89,7 +91,44 @@ There is no boot service, web server, external notification, or automatic result
 publication. `run` is the only overnight launch; preparation does not start GPU
 inference. `examples/acceptance.yaml` selects two examples per benchmark.
 
+The bounded generation comparison example is
+[`examples/qwen3.8-bounded-comparison.yaml`](examples/qwen3.8-bounded-comparison.yaml).
+`bench preflight` runs synthetic CPU checks only: it does not discover GPUs,
+load checkpoints, start vLLM, or report model scores. Published Qwen reference
+values are stored separately in [`references/qwen3.8-27b.json`](references/qwen3.8-27b.json);
+reports call local differences percentage-point differences from that reference,
+not quantization loss.
+
 ## Suite semantics
+
+`budgets: {run_to_completion: true}` disables stage, model and overall active
+time cutoffs. Queue limits, explicit stop, RAM/swap protection, inference-error
+handling, and generated-code grading timeouts still apply. Elapsed time is still
+recorded. `examples/paired-16k-distributed-complete.yaml` uses this mode for a
+fresh paired evaluation on the two local GPUs.
+
+Opt in to independent model replicas with `--scale-gpus auto` on **both**
+`prepare` and `run` (and optionally `plan`), or list GPU UUIDs after the flag.
+The equivalent suite setting is `distribution: {gpus: auto}` or
+`distribution: {gpus: [GPU-uuid1, GPU-uuid2]}`.
+
+At launch, the selected devices are frozen into disjoint groups of the model's
+tensor-parallel size. Four GPUs give four TP1 replicas or two TP2 replicas;
+incomplete groups remain unused. The replica count is capped by the smallest
+benchmark count. In distribution mode this pool overrides a profile's single
+`gpu_device` pin, while preserving its TP size and inference settings.
+The whole-host idle gate and shared exclusive lock remain required; `auto`
+means all detected GPUs, not opportunistically sharing a busy host.
+
+Replicas receive stable, disjoint slices of each benchmark's frozen IDs and
+isolated response, compiler, and dataset caches under `replicas/`. Their committed
+records are collected into the regular stage directories for live reporting.
+HumanEval generation is parallel; grading remains serial after all GPU workers
+stop. Budgets measure wall time, not summed replica time. Resume preserves
+the frozen allocation and each replica's committed work. GPU replicas require
+enough host RAM for simultaneous model loading; existing RAM/swap guards apply.
+This option has automated orchestration coverage; multi-GPU replica inference
+still requires a live acceptance run before treating throughput as validated.
 
 See the commented [default suite](examples/smoke.yaml) and
 [two-model comparison](examples/comparison.yaml). Counts are **total per benchmark**,
@@ -187,8 +226,7 @@ raw outputs/code, response caches, `report.md`, and `report.json`.
 ## Development and provenance
 
 ```sh
-.venv/bin/pip install pytest==8.4.2
-.venv/bin/pytest -q
+.venv/bin/python -m pytest -q
 BENCH_DOCKER_TESTS=1 .venv/bin/pytest -q tests/test_watchdog.py
 ```
 

@@ -1,0 +1,9 @@
+# Runtime dependencies missing from the pinned lm-eval image and required by
+# the official LiveCodeBench evaluator. Torch, vLLM, datasets, and OpenAI are
+# supplied by the base image through --system-site-packages.
+cohere==5.13.6
+google-genai==0.6.0
+mistralai==0.4.2
+pebble==5.1.0
+together==1.0.1
+datasets==3.2.0
