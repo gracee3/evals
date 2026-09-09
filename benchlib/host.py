@@ -134,7 +134,7 @@ def prepare(config):
         owner = 'prepare-' + uuid.uuid4().hex
         args = container_args(owner, owner, actual)
         # Preparation needs network for pinned public datasets, more RAM for imports, and model read access.
-        for key, val in [('--network', 'bridge'), ('--memory', '16g'), ('--memory-swap', '16g'), ('--user', '0:0')]:
+        for key, val in [('--network', 'bridge'), ('--memory', '32g'), ('--memory-swap', '32g'), ('--user', '0:0')]:
             args[args.index(key) + 1] = val
         args += ['--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE']
         args += mount(path, '/work')

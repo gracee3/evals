@@ -6,8 +6,25 @@
   "evalplus": "0.3.1",
   "evalplus_wheel_sha256": "cd601debb67419113d10ac5c3317689d847f27de5d8cf3837975f3cab571b75d",
   "humaneval_plus": "v0.1.10",
-  "runtime_image": "sha256:f0d11338406136934033e3379d6e32c5bdafdd1b875316546a5da10e29f6b705",
-  "ifbench_dataset": {"repo": "allenai/IFBench_test", "split": "train", "revision": "2e8a48de45ff3bf41242f927254ca81b59ca3ae2", "verifier": "allenai/IFBench@fcd289db21d43aaa96c6d9291d32561cd6e19305"},
-  "gpqa_dataset": {"repo": "Idavidrein/gpqa", "split": "diamond", "revision": "main", "gated": true, "status": "replace with immutable commit after authorized access"},
-  "livecodebench_dataset": {"repo": "livecodebench/code_generation_lite", "revision": "0fe84c3912ea0c4d4a78037083943e8f0c4dd505", "release": "v6", "grader": "LiveCodeBench@28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24", "date_window": "2025-01-01 through 2025-05-01"}
+  "runtime_image": "sha256:c3dc38d912a51e8dd116f90cd773021d728369a55b921807fa3de10ed7ab3358",
+  "ifbench_dataset": {
+    "repo": "allenai/IFBench_test",
+    "split": "train",
+    "revision": "2e8a48de45ff3bf41242f927254ca81b59ca3ae2",
+    "verifier": "allenai/IFBench@fcd289db21d43aaa96c6d9291d32561cd6e19305"
+  },
+  "gpqa_dataset": {
+    "repo": "Idavidrein/gpqa",
+    "split": "diamond",
+    "revision": "main",
+    "gated": true,
+    "status": "replace with immutable commit after authorized access"
+  },
+  "livecodebench_dataset": {
+    "repo": "livecodebench/code_generation_lite",
+    "revision": "0fe84c3912ea0c4d4a78037083943e8f0c4dd505",
+    "release": "v6",
+    "grader": "LiveCodeBench@28fef95ea8c9f7a547c8329f2cd3d32b92c1fa24",
+    "date_window": "2025-01-01 through 2025-05-01"
+  }
 }
