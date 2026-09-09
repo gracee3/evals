@@ -279,7 +279,7 @@ def generation_harness(stage_path, benchmark, model=None, lm=None):
             prompt = row.get('question', '') + '\n\nOptions:\n' + '\n'.join(f'{chr(65+j)}. {x}' for j, x in enumerate(row['options'])) + '\n\nReturn the final option letter.'
         else:
             prompt = row.get('prompt', row.get('question', row.get('title', '')))
-        request = Instance('generate_until', (prompt, kwargs), item['index'])
+        request = Instance('generate_until', row, (prompt, kwargs), item['index'])
         response = lm.generate_until([request])[0]
         parts = split_response(response)
         if benchmark == 'gpqa_diamond':
